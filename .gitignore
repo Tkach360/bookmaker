@@ -1,0 +1,36 @@
+# --- Go ---
+# Бинарные файлы и артефакты сборки
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+*.cover
+
+vendor/
+
+*.pprof
+*.coverprofile
+
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+.zed/
+*.zed-project
+
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+.DS_Store
+Thumbs.db
+*.log
+
+docker-compose.override.yml

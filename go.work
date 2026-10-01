@@ -1,0 +1,10 @@
+go 1.25.0
+
+use (
+	./pkg/broker
+	./pkg/store
+	./services/bets
+	./services/events
+	./services/gateway
+	./shared
+)

@@ -1,0 +1,53 @@
+version: '3.8'
+
+services:
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    networks:
+      - app-network
+
+  gateway:
+    build:
+      context: .
+      dockerfile: services/gateway/Dockerfile
+    container_name: gateway
+    ports:
+      - "8080:8080"
+    environment:
+      - BROKER_URL=amqp://guest:guest@rabbitmq:5672/
+    depends_on:
+      - rabbitmq
+    networks:
+      - app-network
+
+  bets:
+    build:
+      context: .
+      dockerfile: services/bets/Dockerfile
+    container_name: bets
+    environment:
+      - BROKER_URL=amqp://guest:guest@rabbitmq:5672/
+    depends_on:
+      - rabbitmq
+    networks:
+      - app-network
+
+  events:
+    build:
+      context: .
+      dockerfile: services/events/Dockerfile
+    container_name: events
+    environment:
+      - BROKER_URL=amqp://guest:guest@rabbitmq:5672/
+    depends_on:
+      - rabbitmq
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge

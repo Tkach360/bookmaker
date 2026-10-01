@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Betting Service Gateway</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: #f4f6f8;
+            color: #333;
+            margin: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .container {
+            background: white;
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+            max-width: 500px;
+            width: 100%;
+        }
+        h1 { color: #2c3e50; margin-top: 0; display: flex; align-items: center; gap: 10px; }
+        .status {
+            background: #2ecc71;
+            color: white;
+            padding: 0.2rem 0.6rem;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+        .endpoint {
+            background: #f8f9fa;
+            border-left: 4px solid #3498db;
+            padding: 1rem;
+            margin: 1rem 0;
+            border-radius: 4px;
+        }
+        .endpoint.create {
+            border-left-color: #27ae60; /* Зеленый для создания */
+        }
+        .endpoint code {
+            background: #e9ecef;
+            padding: 0.2rem 0.4rem;
+            border-radius: 4px;
+            color: #d63384;
+            font-family: monospace;
+            font-size: 0.9rem;
+        }
+        .method {
+            display: inline-block;
+            padding: 0.1rem 0.4rem;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 0.75rem;
+            margin-right: 0.5rem;
+            color: white;
+        }
+        .method.get { background-color: #3498db; }
+        .method.post { background-color: #27ae60; }
+
+        pre {
+            background: #2c3e50;
+            color: #ecf0f1;
+            padding: 0.8rem;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-size: 0.85rem;
+            margin-top: 0.5rem;
+        }
+
+        a { color: #3498db; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .footer { margin-top: 2rem; font-size: 0.85rem; color: #888; text-align: center; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎲 Betting Gateway <span class="status">Online</span></h1>
+        <p>API-шлюз микросервисной архитектуры ставок. Взаимодействие с backend-сервисами осуществляется асинхронно через RabbitMQ.</p>
+
+        <h3>Доступные эндпоинты:</h3>
+
+        <div class="endpoint">
+            <strong><span class="method get">GET</span>Получить ставку</strong><br>
+            <code>/bet/:id</code><br>
+            <small>Пример: <a href="/bet/1">/bet/1</a></small>
+        </div>
+
+        <div class="endpoint create">
+            <strong><span class="method post">POST</span>Создать ставку</strong><br>
+            <code>/bet</code><br>
+            <small>Создает новую ставку для пользователя на указанное событие.</small>
+            <pre>
+{
+  "user_id": 1,
+  "event_id": 1,
+  "amount": "100.50"
+}</pre>
+            <small>Пример curl:</small>
+            <pre>
+curl -X POST http://localhost:8080/bet \
+  -H "Content-Type: application/json" \
+  -d '{"user_id":1, "event_id":1, "amount":"100.50"}'</pre>
+        </div>
+
+        <div class="endpoint">
+            <strong><span class="method get">GET</span>Получить событие</strong><br>
+            <code>/event/:id</code><br>
+            <small>Пример: <a href="/event/1">/event/1</a></small>
+        </div>
+
+        <div class="footer">Powered by Go, Gin & RabbitMQ</div>
+    </div>
+</body>
+</html>
