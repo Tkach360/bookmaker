@@ -8,7 +8,7 @@ import (
 	"syscall"
 	"time"
 
-	"bookmaker/pkg/broker"
+	"bookmaker/pkg/rmq"
 	"bookmaker/pkg/store"
 	"bookmaker/services/bets/internal"
 	"bookmaker/shared/dto"
@@ -30,14 +30,14 @@ func main() {
 		brokerURL = "amqp://guest:guest@localhost:5672/"
 	}
 
-	requestQueue := os.Getenv("BETS_REQUESTS_QUEUE")
-	if requestQueue == "" {
-		requestQueue = "bets.requests"
+	requestsQueue := os.Getenv("BETS_REQUESTS_QUEUE")
+	if requestsQueue == "" {
+		requestsQueue = "bets.requests"
 	}
 
-	responseQueue := os.Getenv("BETS_RESPONSES_QUEUE")
-	if responseQueue == "" {
-		responseQueue = "bets.responses"
+	responsesQueue := os.Getenv("BETS_RESPONSES_QUEUE")
+	if responsesQueue == "" {
+		responsesQueue = "bets.responses"
 	}
 
 	s := store.NewMapStore[dto.Bet]()
@@ -48,52 +48,48 @@ func main() {
 	s.Put(5, dto.Bet{Id: 5, EventId: 3, Amount: decimal.NewFromFloat(4999.99), User: "Игорь"})
 	s.Put(6, dto.Bet{Id: 6, EventId: 3, Amount: decimal.NewFromFloat(12345.67), User: "Ольга"})
 
-	var b *broker.Broker
-	var err error
-
-	maxRetries := 10
-	for i := range maxRetries {
-		b, err = broker.New(ctx, brokerURL)
-		if err == nil {
-			log.Println("Successfully connected to RabbitMQ")
-			break
-		}
-		log.Printf("Failed to connect to RabbitMQ (attempt %d/%d): %v. Retrying in 2s...", i+1, maxRetries, err)
-		time.Sleep(2 * time.Second)
-	}
-
+	conn, err := rmq.DialWithRetry(ctx, brokerURL, 10, 2*time.Second)
 	if err != nil {
-		log.Fatalf("❌ Could not connect to RabbitMQ after %d attempts: %v", maxRetries, err)
+		log.Fatal("dialing rabbitmq: " + err.Error())
 	}
+
 	defer func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := b.Close(shutdownCtx); err != nil {
+		if err := conn.Close(); err != nil {
 			log.Printf("broker close error: %v", err)
 		}
 	}()
 
-	if err := b.ConnectConsumers(ctx, requestQueue); err != nil {
-		log.Fatalf("connect consumers: %v", err)
-	}
-	if err := b.ConnectPublishers(ctx, responseQueue); err != nil {
-		log.Fatalf("connect publishers: %v", err)
-	}
-
 	eventsRequestQueue := "events.requests"
 	eventsResponseQueue := "bets.events.responses"
 
-	eventClient := internal.NewEventClient(ctx, b, eventsRequestQueue, eventsResponseQueue)
-
-	betService := internal.BetService{
-		Store:         s,
-		Broker:        b,
-		RequestQueue:  requestQueue,
-		ResponseQueue: responseQueue,
-		EventClient:   eventClient,
+	client, err := rmq.NewClient(conn, eventsResponseQueue)
+	if err != nil {
+		log.Fatal(err)
+		return
+	}
+	eventClient := internal.NewEventClient(client, eventsRequestQueue)
+	server, err := rmq.NewServer(conn, requestsQueue)
+	if err != nil {
+		log.Fatalf("broker close error: %v", err)
+		return
 	}
 
-	betService.Run(ctx)
+	betService := internal.BetService{
+		Store:       s,
+		Server:      server,
+		EventClient: eventClient,
+	}
+
+	errCh := make(chan error)
+	go func() {
+		select {
+		case err := <-errCh:
+			log.Print(err)
+		default:
+		}
+	}()
+
+	betService.Start(ctx, errCh)
 	<-ctx.Done()
 	log.Println("Shutting down bet service...")
 }

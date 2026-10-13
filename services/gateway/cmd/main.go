@@ -11,7 +11,7 @@ import (
 	"time"
 
 	gateway "bookmaker/gateway/internal"
-	"bookmaker/pkg/broker"
+	"bookmaker/pkg/rmq"
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
@@ -33,42 +33,32 @@ func main() {
 		brokerURL = "amqp://guest:guest@localhost:5672/"
 	}
 
-	requestQueue := os.Getenv("GATEWAY_REQUESTS_BETS")
-	if requestQueue == "" {
-		requestQueue = "bets.requests"
+	requestsQueue := os.Getenv("GATEWAY_REQUESTS_BETS")
+	if requestsQueue == "" {
+		requestsQueue = "bets.requests"
 	}
-	responceQueue := os.Getenv("GATEWAY_RESPONSES_BETS")
-	if responceQueue == "" {
-		responceQueue = "bets.responses"
-	}
-
-	var b *broker.Broker
-	var err error
-
-	maxRetries := 10
-	for i := range maxRetries {
-		b, err = broker.New(ctx, brokerURL)
-		if err == nil {
-			log.Println("Successfully connected to RabbitMQ")
-			break
-		}
-		log.Printf("Failed to connect to RabbitMQ (attempt %d/%d): %v. Retrying in 2s...", i+1, maxRetries, err)
-		time.Sleep(2 * time.Second)
+	responsesQueue := os.Getenv("GATEWAY_RESPONSES_BETS")
+	if responsesQueue == "" {
+		responsesQueue = "bets.responses"
 	}
 
+	conn, err := rmq.DialWithRetry(ctx, brokerURL, 10, 2*time.Second)
 	if err != nil {
-		log.Fatalf("Could not connect to RabbitMQ after %d attempts: %v", maxRetries, err)
+		log.Fatal("dialing rabbitmq: " + err.Error())
 	}
+
 	defer func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := b.Close(shutdownCtx); err != nil {
+		if err := conn.Close(); err != nil {
 			log.Printf("broker close error: %v", err)
 		}
 	}()
 
 	r := gin.Default()
-	betClient := gateway.NewBetClient(ctx, b, requestQueue, responceQueue)
+	betClient, err := gateway.NewBetClient(conn, requestsQueue, responsesQueue)
+	if err != nil {
+		log.Fatal(err)
+		return
+	}
 	gateway := gateway.Gateway{
 		Router:    r,
 		BetClient: betClient,

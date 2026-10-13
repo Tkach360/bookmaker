@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -11,14 +10,20 @@ import (
 	"syscall"
 	"time"
 
-	"bookmaker/pkg/broker"
-	"bookmaker/shared/dto"
+	events "bookmaker/events/internal"
+	"bookmaker/pkg/rmq"
 
 	"github.com/joho/godotenv"
-	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 func main() {
+	if err := run(); err != nil && !errors.Is(err, context.Canceled) {
+		log.Fatal(err)
+	}
+}
+
+// вся логика здесь, чтобы defer'ы выполнялись (log.Fatal в main их пропускает)
+func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -26,133 +31,55 @@ func main() {
 		log.Printf("could not find .env, using defaults")
 	}
 
-	brokerURL := os.Getenv("BROKER_URL")
-	if brokerURL == "" {
-		brokerURL = "amqp://guest:guest@localhost:5672/"
-	}
+	brokerURL := getenv("BROKER_URL", "amqp://guest:guest@localhost:5672/")
+	requestsQueue := getenv("EVENTS_REQUESTS_QUEUE", "events.requests")
 
-	requestQueue := os.Getenv("EVENTS_REQUESTS_QUEUE")
-	if requestQueue == "" {
-		requestQueue = "events.requests"
-	}
-
-	responseQueue := os.Getenv("EVENTS_RESPONSES_QUEUE")
-	if responseQueue == "" {
-		responseQueue = "bets.events.responses"
-	}
-
-	var b *broker.Broker
-	var err error
-
-	maxRetries := 10
-	for i := range maxRetries {
-		b, err = broker.New(ctx, brokerURL)
-		if err == nil {
-			log.Println("Successfully connected to RabbitMQ")
-			break
-		}
-		log.Printf("Failed to connect to RabbitMQ (attempt %d/%d): %v. Retrying in 2s...", i+1, maxRetries, err)
-		time.Sleep(2 * time.Second)
-	}
-
+	conn, err := rmq.DialWithRetry(ctx, brokerURL, 15, 2*time.Second)
 	if err != nil {
-		log.Fatalf("Could not connect to RabbitMQ after %d attempts: %v", maxRetries, err)
+		return err
 	}
 	defer func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := b.Close(shutdownCtx); err != nil {
+		if err := conn.Close(); err != nil {
 			log.Printf("broker close error: %v", err)
 		}
 	}()
 
-	if err := b.ConnectConsumers(ctx, requestQueue); err != nil {
-		log.Fatalf("connect consumers: %v", err)
+	server, err := rmq.NewServer(conn, requestsQueue)
+	if err != nil {
+		return fmt.Errorf("creating rpc server: %w", err)
 	}
-	if err := b.ConnectPublishers(ctx, responseQueue); err != nil {
-		log.Fatalf("connect publishers: %v", err)
-	}
-
-	log.Printf(" [*] Events service is running. Waiting for messages on %q. Press CTRL+C to exit.", requestQueue)
-
-	for {
-		delivery, err := b.Receive(ctx, requestQueue)
-		if err != nil {
-			if errors.Is(err, context.Canceled) {
-				log.Println("Context canceled, shutting down events service")
-				return
-			}
-			log.Printf("Failed to receive a message: %v. Retrying in 1s...", err)
-			time.Sleep(1 * time.Second)
-			continue
+	// defer'ы идут в обратном порядке: сначала Close сервера
+	// (дожидается обработчиков), потом закрытие соединения
+	defer func() {
+		if err := server.Close(); err != nil {
+			log.Printf("rpc server close error: %v", err)
 		}
+	}()
 
-		err = processRequest(ctx, delivery, b, responseQueue)
-		if err != nil {
-			log.Printf("Failed to process request: %v", err)
-			_ = delivery.Nack(false, true)
-			continue
+	// канал намеренно не закрываем: в него могут писать до самого Close
+	errCh := make(chan error, 16)
+	go func() {
+		for err := range errCh {
+			log.Printf("events service error: %v", err)
 		}
+	}()
 
-		_ = delivery.Ack(false)
-	}
-}
-
-func processRequest(ctx context.Context, delivery amqp.Delivery, b *broker.Broker, responseQueue string) error {
-	corID := delivery.CorrelationId
-
-	var req dto.Request
-	if err := json.Unmarshal(delivery.Body, &req); err != nil {
-		log.Printf("invalid request format: %v", err)
-		_ = delivery.Ack(false)
-		return err
+	eventService := events.EventService{Server: server}
+	if err := eventService.Start(ctx, errCh); err != nil {
+		return fmt.Errorf("starting events service: %w", err)
 	}
 
-	switch req.Action {
-	case dto.GET_EVENT:
-		handleGetEvent(ctx, delivery, req, corID, b, responseQueue)
-	default:
-		err := fmt.Errorf("unexpected action: %s", req.Action)
-		log.Println(err)
+	log.Printf(" [*] Events service is running. Waiting for requests on %q. Press CTRL+C to exit.", requestsQueue)
 
-		if corID != "" {
-			bResp, _ := dto.PackResponse(nil, dto.ERROR, err)
-			_ = b.PublishWithCorrelationId(ctx, responseQueue, corID, bResp)
-		}
-		_ = delivery.Ack(false)
-		return err
-	}
+	<-ctx.Done()
+	log.Println("Shutting down events service...")
 
 	return nil
 }
 
-func handleGetEvent(ctx context.Context, delivery amqp.Delivery, req dto.Request, corID string, b *broker.Broker, responseQueue string) {
-	var payload map[string]int
-	if err := json.Unmarshal(req.Payload, &payload); err != nil {
-		log.Printf("failed to unmarshal get_event payload: %v", err)
-		_ = delivery.Ack(false) // Discard
-		return
+func getenv(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
 	}
-	eventID := payload["event_id"]
-
-	// TODO: сейчас тут просто заглушка
-	replyData := dto.EventStatusReply{
-		EventID: eventID,
-		Status:  dto.EVENT_OPEN,
-	}
-
-	responseBytes, err := dto.PackResponse(replyData, dto.OK, nil)
-	if err != nil {
-		log.Printf("failed to pack response: %v", err)
-		_ = delivery.Nack(false, true) // Requeue
-		return
-	}
-
-	if err := b.PublishWithCorrelationId(ctx, responseQueue, corID, responseBytes); err != nil {
-		log.Printf("failed to send reply: %v", err)
-		_ = delivery.Nack(false, true) // Requeue, так как не смогли отправить ответ
-		return
-	}
-
-	_ = delivery.Ack(false)
+	return def
 }

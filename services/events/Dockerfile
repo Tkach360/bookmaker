@@ -3,9 +3,10 @@ WORKDIR /app
 
 COPY go.work go.work.sum go.mod go.sum ./
 COPY pkg/broker/go.mod pkg/broker/go.sum ./pkg/broker/
+COPY pkg/rmq/go.mod pkg/rmq/go.sum ./pkg/rmq/
 COPY pkg/store/go.mod ./pkg/store/
 COPY services/bets/go.mod services/bets/go.sum ./services/bets/
-COPY services/events/go.mod ./services/events/
+COPY services/events/go.mod services/events/go.sum ./services/events/
 COPY services/gateway/go.mod services/gateway/go.sum ./services/gateway/
 COPY shared/go.mod shared/go.sum ./shared/
 

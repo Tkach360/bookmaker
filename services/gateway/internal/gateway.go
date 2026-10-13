@@ -1,12 +1,10 @@
 package gateway
 
 import (
+	"bookmaker/shared/dto"
 	"context"
-	"errors"
 	"net/http"
-	"bookmaker/pkg/store"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -45,17 +43,18 @@ func (g *Gateway) GetBet(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second) // TODO: надо вынести в параметр
 	defer cancel()
 
-	bet, err := g.BetClient.GetBet(ctx, id)
-	if err != nil {
-		if errors.Is(err, store.ErrNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "bet not found"})
-		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		}
-		return
-	}
+	bet, status, err := g.BetClient.GetBet(ctx, id)
 
-	c.JSON(http.StatusOK, bet)
+	switch status {
+	case dto.STATUS_OK:
+		c.JSON(http.StatusOK, bet)
+	case dto.STATUS_NOT_FOUND:
+		c.JSON(http.StatusNotFound, gin.H{"error": "bet not found"})
+	case dto.STATUS_ERROR:
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	default:
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "undefined status: " + status})
+	}
 }
 
 type CreateBetHTTPReq struct {
@@ -80,19 +79,18 @@ func (g *Gateway) CreateBet(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 	defer cancel()
 
-	bet, err := g.BetClient.CreateBet(ctx, httpReq.UserID, httpReq.EventID, amount)
-	if err != nil {
-		if strings.Contains(err.Error(), "event_closed") {
-			c.JSON(http.StatusConflict, gin.H{"error": "событие закрыто или не принимает ставки"})
-			return
-		}
-
-		if errors.Is(err, store.ErrNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "bet not found"})
-		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		}
-		return
+	bet, status, err := g.BetClient.CreateBet(ctx, httpReq.UserID, httpReq.EventID, amount)
+	switch status {
+	case dto.STATUS_OK:
+		c.JSON(http.StatusOK, bet)
+	case dto.STATUS_NOT_FOUND:
+		c.JSON(http.StatusNotFound, gin.H{"error": "bet not found"})
+	case dto.STATUS_ERROR:
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	case dto.STATUS_EVENT_CLOSED:
+		c.JSON(http.StatusConflict, gin.H{"error": "событие закрыто или не принимает ставки"})
+	default:
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "undefined status: " + status})
 	}
 
 	c.JSON(http.StatusCreated, bet)

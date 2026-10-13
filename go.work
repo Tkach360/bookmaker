@@ -1,7 +1,6 @@
 go 1.25.0
 
 use (
-	./pkg/broker
 	./pkg/rmq
 	./pkg/store
 	./services/bets
