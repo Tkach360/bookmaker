@@ -11,7 +11,7 @@ import (
 	"bookmaker/pkg/store"
 	"bookmaker/shared/dto"
 
-	events "bookmaker/events"
+	"bookmaker/events"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
