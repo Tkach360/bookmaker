@@ -3,6 +3,7 @@ package internal
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"sync/atomic"
 
@@ -28,6 +29,7 @@ func (e *EventService) Start(ctx context.Context, errCh chan<- error) error {
 	rmq.RegisterHandler(e.Server, dto.GET_EVENT, e.handleGetEvent)
 	rmq.RegisterHandler(e.Server, dto.GET_EVENT_STATUS, e.handleGetEventStatus)
 	rmq.RegisterHandler(e.Server, dto.CREATE_EVENT, e.handleCreateEvent)
+	rmq.RegisterHandler(e.Server, dto.SET_EVENT_STATUS, e.handleSetEventStatus)
 	return e.Server.Start(ctx, errCh)
 }
 
@@ -89,8 +91,50 @@ func (e *EventService) handleCreateEvent(request dto.CreateEventRequest) (dto.Ev
 		IsTook:      false,
 		IsWin:       false,
 	}
-	e.Store.Put(newEvent.Id, newEvent)
+	err := e.Store.Put(newEvent.Id, newEvent)
+	if err != nil {
+		return dto.Event{}, rmq.STATUS_ERROR, fmt.Errorf("put in store: %w", err)
+	}
 
 	log.Printf("CreateEvent: eventId: %d; coefficient: %v;", newEvent.Id, newEvent.Coefficient)
 	return newEvent, rmq.STATUS_OK, nil
+}
+
+var ErrEventCannotReopened error = errors.New("event cannot be reopened")
+var ErrUnexpectedEventStatus error = errors.New("unexpected event status")
+
+func (e *EventService) handleSetEventStatus(request dto.SetEventStatusRequest) (dto.EventStatusReply, rmq.RPCResponseStatus, error) {
+	event, err := e.Store.Get(request.Id)
+
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return dto.EventStatusReply{}, dto.STATUS_NOT_FOUND, nil
+		} else {
+			return dto.EventStatusReply{}, rmq.STATUS_ERROR, err
+		}
+	}
+
+	if event.IsTook {
+		return dto.EventStatusReply{}, rmq.STATUS_ERROR, ErrEventCannotReopened
+	}
+
+	event.IsTook = true
+	switch request.Status {
+	case dto.EVENT_STATUS_WIN:
+		event.IsWin = true
+	case dto.EVENT_STATUS_LOSS:
+		event.IsWin = false
+	case dto.EVENT_STATUS_OPEN:
+		// изменение статуса на EVENT_STATUS_OPEN ничего не меняет
+	default:
+		return dto.EventStatusReply{}, rmq.STATUS_ERROR, ErrUnexpectedEventStatus
+	}
+
+	err = e.Store.Put(event.Id, event)
+	if err != nil {
+		return dto.EventStatusReply{}, rmq.STATUS_ERROR, fmt.Errorf("put in store: %w", err)
+	}
+
+	return dto.EventStatusReply{EventID: event.Id, Status: request.Status}, rmq.STATUS_OK, nil
+
 }

@@ -28,6 +28,7 @@ func NewEventClient(rpc *rmq.RPCClient, requestQueue string) *EventClient {
 	rpc.AddMethod(rmq.RPCMethodName(dto.GET_EVENT), requestQueue)
 	rpc.AddMethod(rmq.RPCMethodName(dto.GET_EVENT_STATUS), requestQueue) // TODO: нужно что-то придумать чтобы не забывать тут регистрировать новые методы
 	rpc.AddMethod(rmq.RPCMethodName(dto.CREATE_EVENT), requestQueue)
+	rpc.AddMethod(rmq.RPCMethodName(dto.SET_EVENT_STATUS), requestQueue)
 
 	return &EventClient{rpc: rpc}
 }
@@ -78,5 +79,11 @@ func (c *EventClient) GetEvent(ctx context.Context, eventID int) (*dto.Event, er
 func (c *EventClient) CreateEvent(ctx context.Context, coefficient decimal.Decimal) (*dto.Event, rmq.RPCResponseStatus, error) {
 	return rmq.Call[dto.CreateEventRequest, dto.Event](
 		ctx, c.rpc, rmq.RPCMethodName(dto.CREATE_EVENT), dto.CreateEventRequest{Coefficient: coefficient}, // TODO: надо вынести создание запроса наружу
+	)
+}
+
+func (c *EventClient) SetEventStatus(ctx context.Context, status dto.EventStatus) (*dto.EventStatusReply, rmq.RPCResponseStatus, error) {
+	return rmq.Call[dto.SetEventStatusRequest, dto.EventStatusReply](
+		ctx, c.rpc, rmq.RPCMethodName(dto.SET_EVENT_STATUS), dto.SetEventStatusRequest{Status: status}, // TODO: надо вынести создание запроса наружу
 	)
 }

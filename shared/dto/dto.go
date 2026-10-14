@@ -44,6 +44,11 @@ var (
 	EVENT_STATUS_LOSS EventStatus = "loss"
 )
 
+type SetEventStatusRequest struct {
+	Id     int         `json:"event_id"`
+	Status EventStatus `json:"status"`
+}
+
 type EventStatusReply struct {
 	EventID int         `json:"event_id"`
 	Status  EventStatus `json:"status"`
