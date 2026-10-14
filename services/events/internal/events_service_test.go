@@ -226,3 +226,105 @@ func TestHandleCreateEvent(t *testing.T) {
 		})
 	}
 }
+
+func TestHandleSetEventStatus(t *testing.T) {
+	tests := []struct {
+		name              string
+		setupStore        func() store.Store[dto.Event]
+		request           dto.SetEventStatusRequest
+		wantStatus        rmq.RPCResponseStatus
+		wantErr           error
+		wantReplyStatus   dto.EventStatus
+		checkStoreUpdated bool
+	}{
+		{
+			name: "успешно: установка статуса WIN",
+			setupStore: func() store.Store[dto.Event] {
+				s := store.NewMapStore[dto.Event]()
+				s.Put(1, dto.Event{Id: 1, IsTook: false, IsWin: false})
+				return s
+			},
+			request:           dto.SetEventStatusRequest{Id: 1, Status: dto.EVENT_STATUS_WIN},
+			wantStatus:        rmq.STATUS_OK,
+			wantErr:           nil,
+			wantReplyStatus:   dto.EVENT_STATUS_WIN,
+			checkStoreUpdated: true,
+		},
+		{
+			name: "успешно: установка статуса LOSS",
+			setupStore: func() store.Store[dto.Event] {
+				s := store.NewMapStore[dto.Event]()
+				s.Put(2, dto.Event{Id: 2, IsTook: false, IsWin: false})
+				return s
+			},
+			request:           dto.SetEventStatusRequest{Id: 2, Status: dto.EVENT_STATUS_LOSS},
+			wantStatus:        rmq.STATUS_OK,
+			wantErr:           nil,
+			wantReplyStatus:   dto.EVENT_STATUS_LOSS,
+			checkStoreUpdated: true,
+		},
+		{
+			name: "ошибка: событие не найдено",
+			setupStore: func() store.Store[dto.Event] {
+				return store.NewMapStore[dto.Event]()
+			},
+			request:    dto.SetEventStatusRequest{Id: 99, Status: dto.EVENT_STATUS_WIN},
+			wantStatus: dto.STATUS_NOT_FOUND,
+			wantErr:    nil, // В исходном коде ошибка не возвращается, только статус
+		},
+		{
+			name: "ошибка: событие уже закрыто",
+			setupStore: func() store.Store[dto.Event] {
+				s := store.NewMapStore[dto.Event]()
+				s.Put(3, dto.Event{Id: 3, IsTook: true})
+				return s
+			},
+			request:    dto.SetEventStatusRequest{Id: 3, Status: dto.EVENT_STATUS_WIN},
+			wantStatus: rmq.STATUS_ERROR,
+			wantErr:    ErrEventCannotReopened,
+		},
+		{
+			name: "ошибка: неожиданный статус",
+			setupStore: func() store.Store[dto.Event] {
+				s := store.NewMapStore[dto.Event]()
+				s.Put(4, dto.Event{Id: 4, IsTook: false})
+				return s
+			},
+			request:    dto.SetEventStatusRequest{Id: 4, Status: "INVALID_STATUS"},
+			wantStatus: rmq.STATUS_ERROR,
+			wantErr:    ErrUnexpectedEventStatus,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := &EventService{Store: tt.setupStore()}
+
+			reply, status, err := svc.handleSetEventStatus(tt.request)
+
+			if status != tt.wantStatus {
+				t.Errorf("status = %q, want %q", status, tt.wantStatus)
+			}
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("err = %v, want %v", err, tt.wantErr)
+			}
+			if tt.wantErr == nil && reply.Status != tt.wantReplyStatus {
+				t.Errorf("reply.Status = %q, want %q", reply.Status, tt.wantReplyStatus)
+			}
+
+			if tt.checkStoreUpdated {
+				updatedEvent, getErr := svc.Store.Get(tt.request.Id)
+				if getErr != nil {
+					t.Fatalf("failed to get updated event from store: %v", getErr)
+				}
+				if !updatedEvent.IsTook {
+					t.Errorf("expected event.IsTook to be true")
+				}
+				expectedWin := tt.request.Status == dto.EVENT_STATUS_WIN
+				if updatedEvent.IsWin != expectedWin {
+					t.Errorf("expected event.IsWin to be %v, got %v", expectedWin, updatedEvent.IsWin)
+				}
+			}
+		})
+	}
+}
