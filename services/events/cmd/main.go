@@ -12,8 +12,11 @@ import (
 
 	events "bookmaker/events/internal"
 	"bookmaker/pkg/rmq"
+	"bookmaker/pkg/store"
+	"bookmaker/shared/dto"
 
 	"github.com/joho/godotenv"
+	"github.com/shopspring/decimal"
 )
 
 func main() {
@@ -64,7 +67,15 @@ func run() error {
 		}
 	}()
 
-	eventService := events.EventService{Server: server}
+	store := store.NewMapStore[dto.Event]()
+	store.Put(1, dto.Event{Id: 1, Coefficient: decimal.NewFromFloat(0.6), IsWin: false, IsTook: false})
+	store.Put(2, dto.Event{Id: 2, Coefficient: decimal.NewFromFloat(0.2), IsWin: true, IsTook: true})
+	store.Put(3, dto.Event{Id: 3, Coefficient: decimal.NewFromFloat(0.9), IsWin: false, IsTook: true})
+
+	eventService := events.EventService{
+		Server: server,
+		Store:  store,
+	}
 	if err := eventService.Start(ctx, errCh); err != nil {
 		return fmt.Errorf("starting events service: %w", err)
 	}

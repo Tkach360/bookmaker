@@ -25,7 +25,6 @@ type RPCClient struct {
 	ResponsesQueue amqp.Queue // очередь RabbitMQ, в которой будут ответы на запросы этого микросервиса
 	consumer       *amqp.Channel
 
-	// RequestsQueue string // очередь RabbitMQ, в которую другие микросервисы будут помещать запросы этому микросервису
 	producer *amqp.Channel
 
 	methodsServices map[RPCMethodName]string // методы и очереди для них
@@ -40,7 +39,7 @@ type RPCClient struct {
 	pendingMu *sync.Mutex
 }
 
-func NewClient(conn *amqp.Connection, ResponsesQueue string) (*RPCClient, error) {
+func NewClient(conn *amqp.Connection, respQueueName string) (*RPCClient, error) {
 	consumer, err := conn.Channel()
 	if err != nil {
 		return nil, fmt.Errorf("creating channel: %w", err)
@@ -52,7 +51,7 @@ func NewClient(conn *amqp.Connection, ResponsesQueue string) (*RPCClient, error)
 		return nil, fmt.Errorf("creating channel: %w", err)
 	}
 
-	q, err := consumer.QueueDeclare(ResponsesQueue, false, true, true, false, nil)
+	q, err := consumer.QueueDeclare(respQueueName, false, true, true, false, nil)
 	if err != nil {
 		consumer.Close()
 		producer.Close()
@@ -75,16 +74,9 @@ func NewClient(conn *amqp.Connection, ResponsesQueue string) (*RPCClient, error)
 
 // добавить новый удаленный метод
 func (r *RPCClient) AddMethod(mname RPCMethodName, qname string) {
-	// producer, err := r.conn.Channel()
-	// if err != nil {
-	// 	return fmt.Errorf("creating channel: %w", err)
-	// }
-
 	r.methodsMu.Lock()
 	defer r.methodsMu.Unlock()
-
 	r.methodsServices[mname] = qname
-	// return nil
 }
 
 // запуск прослушивания ответов
@@ -117,7 +109,7 @@ func Send[T any](ctx context.Context, r *RPCClient, mname RPCMethodName, payload
 	queue, ok := r.methodsServices[mname]
 	r.methodsMu.RUnlock()
 	if !ok {
-		return fmt.Errorf("unknown rpc method %q", mname)
+		return fmt.Errorf("unknown rpc send method %q", mname)
 	}
 
 	err = r.producer.PublishWithContext(
@@ -156,7 +148,7 @@ func (r *RPCClient) call(ctx context.Context, mname RPCMethodName, payload json.
 	queue, ok := r.methodsServices[mname]
 	if !ok {
 		r.methodsMu.RUnlock()
-		return nil, "", fmt.Errorf("unknown rpc method %q", mname)
+		return nil, "", fmt.Errorf("unknown rpc call method %q", mname)
 	}
 	r.methodsMu.RUnlock()
 
@@ -204,27 +196,23 @@ func (r *RPCClient) removePending(id string) {
 // - r - клиент, у которого вызываем (обход того, что в Go нельзя делать методы с дженериками)
 // - mname - имя вызываемого метода
 // - payload - аргументы
+// всегда возвращает непустой статус
 func Call[T, B any](ctx context.Context, r *RPCClient, mname RPCMethodName, payload T) (*B, RPCResponseStatus, error) {
 	request, err := json.Marshal(payload)
 	if err != nil {
-		return nil, "", fmt.Errorf("marshaling payload json: %w", err)
+		return nil, STATUS_ERROR, fmt.Errorf("marshaling payload json: %w", err)
 	}
-
-	// request, err := json.Marshal(bPayload)
-	// if err != nil {
-	// 	return nil, "", fmt.Errorf("marshaling request json: %w", err)
-	// }
 
 	resultCh, corID, err := r.call(ctx, mname, request)
 	if err != nil {
-		return nil, "", fmt.Errorf("publish msg: %w", err)
+		return nil, STATUS_ERROR, fmt.Errorf("publish msg: %w", err)
 	}
 	defer r.removePending(corID)
 
 	select {
 	case result := <-resultCh:
 		if result.Err != nil {
-			return nil, "", fmt.Errorf("rpc client error: %w", result.Err)
+			return nil, STATUS_ERROR, fmt.Errorf("error receiving response: %w", result.Err)
 		}
 
 		response := result.Response
@@ -244,7 +232,7 @@ func Call[T, B any](ctx context.Context, r *RPCClient, mname RPCMethodName, payl
 		return &data, response.Status, nil
 
 	case <-ctx.Done():
-		return nil, "", ctx.Err()
+		return nil, STATUS_ERROR, ctx.Err()
 	}
 }
 

@@ -1,8 +1,11 @@
 package gateway
 
 import (
+	bets "bookmaker/bets"
+	"bookmaker/pkg/rmq"
 	"bookmaker/shared/dto"
 	"context"
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
@@ -12,7 +15,7 @@ import (
 )
 
 type Gateway struct {
-	BetClient *BetClient
+	BetClient *bets.BetClient
 	Router    *gin.Engine
 }
 
@@ -44,13 +47,20 @@ func (g *Gateway) GetBet(c *gin.Context) {
 	defer cancel()
 
 	bet, status, err := g.BetClient.GetBet(ctx, id)
-
+	if err != nil && status == "" {
+		code := http.StatusBadGateway
+		if errors.Is(err, context.DeadlineExceeded) {
+			code = http.StatusGatewayTimeout
+		}
+		c.JSON(code, gin.H{"error": err.Error()})
+		return
+	}
 	switch status {
-	case dto.STATUS_OK:
+	case rmq.STATUS_OK:
 		c.JSON(http.StatusOK, bet)
 	case dto.STATUS_NOT_FOUND:
 		c.JSON(http.StatusNotFound, gin.H{"error": "bet not found"})
-	case dto.STATUS_ERROR:
+	case rmq.STATUS_ERROR:
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 	default:
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "undefined status: " + status})
@@ -80,18 +90,29 @@ func (g *Gateway) CreateBet(c *gin.Context) {
 	defer cancel()
 
 	bet, status, err := g.BetClient.CreateBet(ctx, httpReq.UserID, httpReq.EventID, amount)
+	if err != nil && status == "" {
+		code := http.StatusBadGateway
+		if errors.Is(err, context.DeadlineExceeded) {
+			code = http.StatusGatewayTimeout
+		}
+		c.JSON(code, gin.H{"error": err.Error()})
+		return
+	}
 	switch status {
-	case dto.STATUS_OK:
+	case rmq.STATUS_OK:
 		c.JSON(http.StatusOK, bet)
+		return
 	case dto.STATUS_NOT_FOUND:
 		c.JSON(http.StatusNotFound, gin.H{"error": "bet not found"})
-	case dto.STATUS_ERROR:
+		return
+	case rmq.STATUS_ERROR:
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
 	case dto.STATUS_EVENT_CLOSED:
 		c.JSON(http.StatusConflict, gin.H{"error": "событие закрыто или не принимает ставки"})
+		return
 	default:
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "undefined status: " + status})
+		return
 	}
-
-	c.JSON(http.StatusCreated, bet)
 }

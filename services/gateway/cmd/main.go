@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"bookmaker/bets"
 	gateway "bookmaker/gateway/internal"
 	"bookmaker/pkg/rmq"
 
@@ -18,67 +20,90 @@ import (
 )
 
 func main() {
+	if err := run(); err != nil && !errors.Is(err, context.Canceled) {
+		log.Fatal(err)
+	}
+}
 
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-
+// вся логика здесь, чтобы defer'ы выполнялись (log.Fatal в main их пропускает)
+func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	if err := godotenv.Load(); err != nil {
-		log.Printf("could not find .env, using default")
-	}
-	brokerURL := os.Getenv("BROKER_URL")
-	if brokerURL == "" {
-		brokerURL = "amqp://guest:guest@localhost:5672/"
+		log.Printf("could not find .env, using defaults")
 	}
 
-	requestsQueue := os.Getenv("GATEWAY_REQUESTS_BETS")
-	if requestsQueue == "" {
-		requestsQueue = "bets.requests"
-	}
-	responsesQueue := os.Getenv("GATEWAY_RESPONSES_BETS")
-	if responsesQueue == "" {
-		responsesQueue = "bets.responses"
-	}
+	brokerURL := getenv("BROKER_URL", "amqp://guest:guest@localhost:5672/")
+	// очередь запросов сервиса bets
+	betsRequestsQueue := getenv("GATEWAY_REQUESTS_BETS", "bets.requests")
+	// очередь ответов на запросы gateway; пусто - имя выдаст брокер
+	responsesQueue := getenv("GATEWAY_RESPONSES_BETS", "")
 
-	conn, err := rmq.DialWithRetry(ctx, brokerURL, 10, 2*time.Second)
+	conn, err := rmq.DialWithRetry(ctx, brokerURL, 15, 2*time.Second)
 	if err != nil {
-		log.Fatal("dialing rabbitmq: " + err.Error())
+		return fmt.Errorf("dialing rabbitmq: %w", err)
 	}
-
 	defer func() {
 		if err := conn.Close(); err != nil {
 			log.Printf("broker close error: %v", err)
 		}
 	}()
 
-	r := gin.Default()
-	betClient, err := gateway.NewBetClient(conn, requestsQueue, responsesQueue)
+	client, err := rmq.NewClient(conn, responsesQueue)
 	if err != nil {
-		log.Fatal(err)
-		return
+		return fmt.Errorf("creating rpc client: %w", err)
 	}
-	gateway := gateway.Gateway{
+	// defer'ы идут в обратном порядке: клиент закрывается после остановки
+	// HTTP-сервера (он в теле функции) и до закрытия соединения
+	defer func() {
+		if err := client.Close(); err != nil {
+			log.Printf("rpc client close error: %v", err)
+		}
+	}()
+
+	// канал намеренно не закрываем: в него могут писать до самого Close
+	errCh := make(chan error, 16)
+	go func() {
+		for err := range errCh {
+			log.Printf("gateway error: %v", err)
+		}
+	}()
+
+	// клиент запускаем с отдельным контекстом, а не с сигнальным: при SIGTERM
+	// HTTP-сервер должен успеть дообработать текущие запросы, а клиент им нужен
+	if err := client.Start(context.Background(), errCh); err != nil {
+		return fmt.Errorf("starting rpc client: %w", err)
+	}
+
+	betClient := bets.NewBetClient(client, betsRequestsQueue)
+
+	r := gin.Default()
+	gw := gateway.Gateway{
 		Router:    r,
 		BetClient: betClient,
 	}
-	gateway.SetupRouter()
+	gw.SetupRouter()
 
 	srv := &http.Server{
 		Addr:    ":8080",
 		Handler: r,
 	}
 
+	srvErr := make(chan error, 1)
 	go func() {
 		log.Println("Server started on :8080")
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatalf("server error: %v", err)
+			srvErr <- err
 		}
 	}()
 
-	<-ctx.Done()
-	log.Println("Shutting down gracefully...")
+	select {
+	case <-ctx.Done():
+		log.Println("Shutting down gracefully...")
+	case err := <-srvErr:
+		return fmt.Errorf("server error: %w", err)
+	}
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -87,4 +112,13 @@ func main() {
 		log.Printf("Server forced to shutdown: %v", err)
 	}
 	log.Println("Server exited")
+
+	return nil
+}
+
+func getenv(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
 }

@@ -2,15 +2,17 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
+	"bookmaker/bets/internal"
 	"bookmaker/pkg/rmq"
 	"bookmaker/pkg/store"
-	"bookmaker/services/bets/internal"
 	"bookmaker/shared/dto"
 
 	"github.com/joho/godotenv"
@@ -18,6 +20,13 @@ import (
 )
 
 func main() {
+	if err := run(); err != nil && !errors.Is(err, context.Canceled) {
+		log.Fatal(err)
+	}
+}
+
+// вся логика здесь, чтобы defer'ы выполнялись (log.Fatal в main их пропускает)
+func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -25,20 +34,15 @@ func main() {
 		log.Printf("could not find .env, using defaults")
 	}
 
-	brokerURL := os.Getenv("BROKER_URL")
-	if brokerURL == "" {
-		brokerURL = "amqp://guest:guest@localhost:5672/"
-	}
+	brokerURL := getenv("BROKER_URL", "amqp://guest:guest@localhost:5672/")
 
-	requestsQueue := os.Getenv("BETS_REQUESTS_QUEUE")
-	if requestsQueue == "" {
-		requestsQueue = "bets.requests"
-	}
-
-	responsesQueue := os.Getenv("BETS_RESPONSES_QUEUE")
-	if responsesQueue == "" {
-		responsesQueue = "bets.responses"
-	}
+	// запросы для bets
+	betsRequestsQueue := getenv("BETS_REQUESTS_QUEUE", "bets.requests")
+	// запросы для events
+	eventsRequestsQueue := getenv("EVENTS_REQUESTS_QUEUE", "events.requests")
+	// ответы на запросы, которые bets отправляет другим сервисам;
+	// пусто - имя очереди выдаст брокер
+	betsResponsesQueue := getenv("BETS_RESPONSES_QUEUE", "")
 
 	s := store.NewMapStore[dto.Bet]()
 	s.Put(1, dto.Bet{Id: 1, EventId: 1, Amount: decimal.NewFromFloat(1000.0), User: "Вячеслав"})
@@ -48,48 +52,51 @@ func main() {
 	s.Put(5, dto.Bet{Id: 5, EventId: 3, Amount: decimal.NewFromFloat(4999.99), User: "Игорь"})
 	s.Put(6, dto.Bet{Id: 6, EventId: 3, Amount: decimal.NewFromFloat(12345.67), User: "Ольга"})
 
-	conn, err := rmq.DialWithRetry(ctx, brokerURL, 10, 2*time.Second)
+	conn, err := rmq.DialWithRetry(ctx, brokerURL, 15, 2*time.Second)
 	if err != nil {
-		log.Fatal("dialing rabbitmq: " + err.Error())
+		return fmt.Errorf("dialing rabbitmq: %w", err)
 	}
-
 	defer func() {
 		if err := conn.Close(); err != nil {
 			log.Printf("broker close error: %v", err)
 		}
 	}()
 
-	eventsRequestQueue := "events.requests"
-	eventsResponseQueue := "bets.events.responses"
-
-	client, err := rmq.NewClient(conn, eventsResponseQueue)
+	betService, err := internal.NewBetService(s, conn, betsRequestsQueue, eventsRequestsQueue, betsResponsesQueue)
 	if err != nil {
-		log.Fatal(err)
-		return
+		return fmt.Errorf("creating bet service: %w", err)
 	}
-	eventClient := internal.NewEventClient(client, eventsRequestQueue)
-	server, err := rmq.NewServer(conn, requestsQueue)
-	if err != nil {
-		log.Fatalf("broker close error: %v", err)
-		return
-	}
-
-	betService := internal.BetService{
-		Store:       s,
-		Server:      server,
-		EventClient: eventClient,
-	}
-
-	errCh := make(chan error)
-	go func() {
-		select {
-		case err := <-errCh:
-			log.Print(err)
-		default:
+	// defer'ы идут в обратном порядке: сначала Close сервиса
+	// (дожидается обработчиков), потом закрытие соединения
+	defer func() {
+		if err := betService.Close(); err != nil {
+			log.Printf("bet service close error: %v", err)
 		}
 	}()
 
-	betService.Start(ctx, errCh)
+	// канал намеренно не закрываем: в него могут писать до самого Close
+	errCh := make(chan error, 16)
+	go func() {
+		for err := range errCh {
+			log.Printf("bet service error: %v", err)
+		}
+	}()
+
+	if err := betService.Start(ctx, errCh); err != nil {
+		return fmt.Errorf("starting bet service: %w", err)
+	}
+
+	log.Printf(" [*] Bets service is running. Waiting for requests on %q. Press CTRL+C to exit.", betsRequestsQueue)
+
 	<-ctx.Done()
 	log.Println("Shutting down bet service...")
+
+	return nil
+}
+
+func getenv(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
 }

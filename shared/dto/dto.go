@@ -23,7 +23,7 @@ type Event struct {
 }
 
 type GetEventRequest struct {
-	Id int `json:"id"`
+	Id int `json:"event_id"`
 }
 
 type CreateBetRequest struct {
@@ -35,9 +35,9 @@ type CreateBetRequest struct {
 type EventStatus string
 
 var (
-	EVENT_OPEN     EventStatus = "open"
-	EVENT_CLOSED   EventStatus = "closed"
-	EVENT_FINISHED EventStatus = "finished"
+	EVENT_STATUS_OPEN EventStatus = "open" // когда событие ещё не произошло
+	EVENT_STATUS_WIN  EventStatus = "win"
+	EVENT_STATUS_LOSS EventStatus = "loss"
 )
 
 type EventStatusReply struct {

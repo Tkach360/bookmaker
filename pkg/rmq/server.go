@@ -18,6 +18,11 @@ type RPCMethodName string
 
 type RPCResponseStatus string
 
+const (
+	STATUS_OK    RPCResponseStatus = "ok"
+	STATUS_ERROR RPCResponseStatus = "error"
+)
+
 // тип RPCResponse определяет ответ от сервера
 // Err - ошибка, произошедшая на стороне сервера
 type RPCResponse struct {
@@ -179,7 +184,7 @@ func (r *RPCServer) handle(d amqp.Delivery, errCh chan<- error) {
 		err error
 	)
 	if !ok {
-		err = fmt.Errorf("unknown rpc method %q", d.Type)
+		err = fmt.Errorf("unknown rpc server method %q", d.Type)
 	} else {
 		res, err = safeCall(handler, d.Body)
 	}
