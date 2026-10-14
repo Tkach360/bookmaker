@@ -182,3 +182,47 @@ func TestGetEventStatus_BadRequest(t *testing.T) {
 		t.Error("expected error for malformed request body")
 	}
 }
+
+func TestHandleCreateEvent(t *testing.T) {
+	svc := newTestService()
+
+	tests := []struct {
+		name        string
+		coefficient decimal.Decimal
+		wantStatus  rmq.RPCResponseStatus
+		wantErr     error // nil - ошибки быть не должно
+	}{
+		{"событие создано", decimal.NewFromFloat(0.2), rmq.STATUS_OK, nil},
+		{"событие не создано, коэф 1", decimal.NewFromFloat(1), rmq.STATUS_ERROR, ErrInvalidCoefficient},
+		{"событие не создано, коэф 2", decimal.NewFromFloat(2), rmq.STATUS_ERROR, ErrInvalidCoefficient},
+		{"событие не создано, коэф 0", decimal.NewFromFloat(0), rmq.STATUS_ERROR, ErrInvalidCoefficient},
+		{"событие не созданоб коэф -1", decimal.NewFromFloat(-1), rmq.STATUS_ERROR, ErrInvalidCoefficient},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			event, status, err := svc.handleCreateEvent(dto.CreateEventRequest{Coefficient: tt.coefficient})
+
+			if status != tt.wantStatus {
+				t.Errorf("status = %q, want %q", status, tt.wantStatus)
+			}
+			if !errors.Is(err, tt.wantErr) {
+				t.Errorf("err = %v, want %v", err, tt.wantErr)
+			}
+			if tt.wantErr == nil && event.Coefficient != tt.coefficient {
+				t.Errorf("event.Coefficient = %d, want %d", event.Coefficient, tt.coefficient)
+			}
+
+			if tt.wantErr == nil {
+				storeEvent, err := svc.Store.Get(event.Id)
+				if err != nil {
+					t.Errorf("could not get event from store, err = %v", err)
+				}
+
+				if storeEvent.Id != event.Id || storeEvent.IsTook != false || storeEvent.IsWin != false {
+					t.Errorf("invalid event state in store, id = %d, IsTook = %v, IsWin = %v", storeEvent.Id, storeEvent.IsTook, storeEvent.IsWin)
+				}
+			}
+		})
+	}
+}
