@@ -26,6 +26,10 @@ type GetEventRequest struct {
 	Id int `json:"event_id"`
 }
 
+type CreateEventRequest struct {
+	Coefficient decimal.Decimal `json:"coefficient"`
+}
+
 type CreateBetRequest struct {
 	UserID  int             `json:"user_id"`
 	EventID int             `json:"event_id"`
