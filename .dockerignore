@@ -18,6 +18,7 @@ docker-compose*.yml
 *.test
 *.out
 vendor/
+tests/
 
 README.md
 LICENSE
