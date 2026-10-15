@@ -34,15 +34,13 @@ func TestMain(m *testing.M) {
 	os.Exit(run(m))
 }
 
-// вся логика здесь, чтобы defer'ы выполнялись (os.Exit в TestMain их пропускает)
 func run(m *testing.M) int {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 
-	// Модуль compose, судя по опциям его Up (Recreate, Wait, RunServices),
-	// образы из секций build не собирает, поэтому собираем их заранее под тем же
-	// именем проекта. Если модуль всё же умеет собирать, эта сборка не помешает:
-	// образы возьмутся из кэша.
+	// принудительная очистка перед запуском на случай аварийного завершения прошлого теста
+	exec.CommandContext(ctx, "docker", "compose", "-f", composeFile, "-p", projectName, "down", "-v", "--remove-orphans").Run()
+
 	if err := dockerComposeBuild(ctx); err != nil {
 		log.Printf("e2e: %v", err)
 		return 1
