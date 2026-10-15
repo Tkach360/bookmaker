@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/signal"
@@ -20,6 +21,7 @@ import (
 )
 
 func main() {
+	log.SetOutput(io.Discard)
 	if err := run(); err != nil && !errors.Is(err, context.Canceled) {
 		log.Fatal(err)
 	}

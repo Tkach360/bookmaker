@@ -4,7 +4,7 @@
 #
 #   docker build --build-arg SERVICE=bets --target service -t bets .
 
-FROM golang:1.25-alpine AS builder
+FROM golang:1.27.2-alpine AS builder
 WORKDIR /app
 
 # Прокси можно переопределить без правки файла:

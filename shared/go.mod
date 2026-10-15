@@ -1,5 +1,5 @@
 module bookmaker/shared
 
-go 1.25.0
+go 1.27.2
 
-require github.com/shopspring/decimal v1.4.0
+require github.com/shopspring/decimal v1.5.0

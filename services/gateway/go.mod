@@ -1,11 +1,11 @@
 module bookmaker/gateway
 
-go 1.25.0
+go 1.27.2
 
 require (
 	github.com/gin-gonic/gin v1.12.0
 	github.com/joho/godotenv v1.5.1
-	github.com/shopspring/decimal v1.4.0
+	github.com/shopspring/decimal v1.5.0
 )
 
 require (
