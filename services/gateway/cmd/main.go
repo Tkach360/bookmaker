@@ -38,7 +38,7 @@ func run() error {
 	// очередь запросов сервиса bets
 	betsRequestsQueue := getenv("GATEWAY_REQUESTS_BETS", "bets.requests")
 	// очередь ответов на запросы gateway; пусто - имя выдаст брокер
-	responsesQueue := getenv("GATEWAY_RESPONSES_BETS", "")
+	responsesQueue := getenv("GATEWAY_RESPONSES_BETS", "gateway.responses")
 
 	conn, err := rmq.DialWithRetry(ctx, brokerURL, 15, 2*time.Second)
 	if err != nil {

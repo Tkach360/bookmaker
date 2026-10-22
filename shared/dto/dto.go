@@ -49,7 +49,7 @@ type SetEventStatusRequest struct {
 	Status EventStatus `json:"status"`
 }
 
-type EventStatusReply struct {
+type EventStatusResponse struct {
 	EventID int         `json:"event_id"`
 	Status  EventStatus `json:"status"`
 }

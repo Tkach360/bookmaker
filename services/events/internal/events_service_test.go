@@ -145,7 +145,7 @@ func TestGetEventStatus_WireFormat(t *testing.T) {
 		t.Fatalf("resp = {err: %q, status: %q}, want empty error and %q", resp.Err, resp.Status, rmq.STATUS_OK)
 	}
 
-	var reply dto.EventStatusReply
+	var reply dto.EventStatusResponse
 	if err := json.Unmarshal(resp.Payload, &reply); err != nil {
 		t.Fatalf("payload is not valid EventStatusReply json: %v", err)
 	}

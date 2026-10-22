@@ -34,7 +34,7 @@ func NewEventClient(rpc *rmq.RPCClient, requestQueue string) *EventClient {
 }
 
 func (c *EventClient) GetEventStatus(ctx context.Context, eventID int) (dto.EventStatus, error) {
-	reply, status, err := rmq.Call[dto.GetEventRequest, dto.EventStatusReply](
+	reply, status, err := rmq.Call[dto.GetEventRequest, dto.EventStatusResponse](
 		ctx, c.rpc, rmq.RPCMethodName(dto.GET_EVENT_STATUS), dto.GetEventRequest{Id: eventID},
 	)
 
@@ -82,8 +82,8 @@ func (c *EventClient) CreateEvent(ctx context.Context, coefficient decimal.Decim
 	)
 }
 
-func (c *EventClient) SetEventStatus(ctx context.Context, status dto.EventStatus) (*dto.EventStatusReply, rmq.RPCResponseStatus, error) {
-	return rmq.Call[dto.SetEventStatusRequest, dto.EventStatusReply](
+func (c *EventClient) SetEventStatus(ctx context.Context, status dto.EventStatus) (*dto.EventStatusResponse, rmq.RPCResponseStatus, error) {
+	return rmq.Call[dto.SetEventStatusRequest, dto.EventStatusResponse](
 		ctx, c.rpc, rmq.RPCMethodName(dto.SET_EVENT_STATUS), dto.SetEventStatusRequest{Status: status}, // TODO: надо вынести создание запроса наружу
 	)
 }

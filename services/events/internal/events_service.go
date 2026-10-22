@@ -49,7 +49,7 @@ func (e *EventService) handleGetEvent(request dto.GetEventRequest) (dto.Event, r
 	return event, status, err
 }
 
-func (e *EventService) handleGetEventStatus(request dto.GetEventRequest) (dto.EventStatusReply, rmq.RPCResponseStatus, error) {
+func (e *EventService) handleGetEventStatus(request dto.GetEventRequest) (dto.EventStatusResponse, rmq.RPCResponseStatus, error) {
 	event, err := e.Store.Get(request.Id)
 
 	status := rmq.STATUS_OK
@@ -61,7 +61,7 @@ func (e *EventService) handleGetEventStatus(request dto.GetEventRequest) (dto.Ev
 		}
 	}
 
-	var replyStatus dto.EventStatusReply
+	var replyStatus dto.EventStatusResponse
 	replyStatus.EventID = event.Id
 	if event.IsTook {
 		if event.IsWin {
@@ -103,19 +103,19 @@ func (e *EventService) handleCreateEvent(request dto.CreateEventRequest) (dto.Ev
 var ErrEventCannotReopened error = errors.New("event cannot be reopened")
 var ErrUnexpectedEventStatus error = errors.New("unexpected event status")
 
-func (e *EventService) handleSetEventStatus(request dto.SetEventStatusRequest) (dto.EventStatusReply, rmq.RPCResponseStatus, error) {
+func (e *EventService) handleSetEventStatus(request dto.SetEventStatusRequest) (dto.EventStatusResponse, rmq.RPCResponseStatus, error) {
 	event, err := e.Store.Get(request.Id)
 
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			return dto.EventStatusReply{}, dto.STATUS_NOT_FOUND, nil
+			return dto.EventStatusResponse{}, dto.STATUS_NOT_FOUND, nil
 		} else {
-			return dto.EventStatusReply{}, rmq.STATUS_ERROR, err
+			return dto.EventStatusResponse{}, rmq.STATUS_ERROR, err
 		}
 	}
 
 	if event.IsTook {
-		return dto.EventStatusReply{}, rmq.STATUS_ERROR, ErrEventCannotReopened
+		return dto.EventStatusResponse{}, rmq.STATUS_ERROR, ErrEventCannotReopened
 	}
 
 	event.IsTook = true
@@ -127,14 +127,14 @@ func (e *EventService) handleSetEventStatus(request dto.SetEventStatusRequest) (
 	case dto.EVENT_STATUS_OPEN:
 		// изменение статуса на EVENT_STATUS_OPEN ничего не меняет
 	default:
-		return dto.EventStatusReply{}, rmq.STATUS_ERROR, ErrUnexpectedEventStatus
+		return dto.EventStatusResponse{}, rmq.STATUS_ERROR, ErrUnexpectedEventStatus
 	}
 
 	err = e.Store.Put(event.Id, event)
 	if err != nil {
-		return dto.EventStatusReply{}, rmq.STATUS_ERROR, fmt.Errorf("put in store: %w", err)
+		return dto.EventStatusResponse{}, rmq.STATUS_ERROR, fmt.Errorf("put in store: %w", err)
 	}
 
-	return dto.EventStatusReply{EventID: event.Id, Status: request.Status}, rmq.STATUS_OK, nil
+	return dto.EventStatusResponse{EventID: event.Id, Status: request.Status}, rmq.STATUS_OK, nil
 
 }
