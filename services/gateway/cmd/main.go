@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
@@ -13,7 +15,7 @@ import (
 
 	"bookmaker/bets"
 	gateway "bookmaker/gateway/internal"
-	"bookmaker/pkg/rmq"
+	"bookmaker/servers"
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
@@ -25,7 +27,7 @@ func main() {
 	}
 }
 
-// вся логика здесь, чтобы defer'ы выполнялись (log.Fatal в main их пропускает)
+// Вся логика находится здесь, чтобы defer'ы выполнялись (log.Fatal в main их пропускает).
 func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -34,55 +36,64 @@ func run() error {
 		log.Printf("could not find .env, using defaults")
 	}
 
-	brokerURL := getenv("BROKER_URL", "amqp://guest:guest@localhost:5672/")
-	// очередь запросов сервиса bets
-	betsRequestsQueue := getenv("GATEWAY_REQUESTS_BETS", "bets.requests")
-	// очередь ответов на запросы gateway; пусто - имя выдаст брокер
-	responsesQueue := getenv("GATEWAY_RESPONSES_BETS", "gateway.responses")
-
-	conn, err := rmq.DialWithRetry(ctx, brokerURL, 15, 2*time.Second)
+	brokerURL, err := url.Parse(getenv("BROKER_URL", "amqp://guest:guest@localhost:5672/"))
 	if err != nil {
-		return fmt.Errorf("dialing rabbitmq: %w", err)
+		return fmt.Errorf("parsing BROKER_URL: %w", err)
 	}
-	defer func() {
-		if err := conn.Close(); err != nil {
-			log.Printf("broker close error: %v", err)
-		}
-	}()
 
-	client, err := rmq.NewClient(conn, responsesQueue)
+	rabbitmq, err := connectWithRetry(ctx, brokerURL, 15, 2*time.Second, servers.ConnectRabbitmqBidi)
 	if err != nil {
-		return fmt.Errorf("creating rpc client: %w", err)
+		return err
 	}
-	// defer'ы идут в обратном порядке: клиент закрывается после остановки
-	// HTTP-сервера (он в теле функции) и до закрытия соединения
-	defer func() {
-		if err := client.Close(); err != nil {
-			log.Printf("rpc client close error: %v", err)
-		}
-	}()
+	defer closeLogged("rabbitmq connection", rabbitmq)
 
-	// канал намеренно не закрываем: в него могут писать до самого Close
-	errCh := make(chan error, 16)
+	// Канал для запросов к сервису Bets.
+	betsRequests, err := rabbitmq.OpenBetsRequestsAMQP(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("opening bets requests channel: %w", err)
+	}
+	defer closeLogged("bets requests channel", betsRequests)
+
+	// Канал для запросов к сервису Events.
+	eventsRequests, err := rabbitmq.OpenEventsRequestsAMQP(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("opening events requests channel: %w", err)
+	}
+	defer closeLogged("events requests channel", eventsRequests)
+
+	// Общая очередь ответов для Gateway.
+	gatewayResponses, err := rabbitmq.OpenGatewayResponsesAMQP(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("opening gateway responses channel: %w", err)
+	}
+	defer closeLogged("gateway responses channel", gatewayResponses)
+
+	betClient := bets.NewBetClient(
+		betsRequests,
+		eventsRequests,
+		gatewayResponses,
+		func(err error) {
+			log.Printf("bet client error: %v", err)
+		},
+	)
+
+	// Клиент работает до завершения HTTP shutdown, чтобы успеть получить ответы
+	// на запросы, которые уже обрабатываются.
+	clientCtx, stopClient := context.WithCancel(context.Background())
+	clientDone := make(chan struct{})
 	go func() {
-		for err := range errCh {
-			log.Printf("gateway error: %v", err)
+		defer close(clientDone)
+		if err := betClient.Run(clientCtx); err != nil && !errors.Is(err, context.Canceled) {
+			log.Printf("bet client stopped: %v", err)
 		}
 	}()
-
-	// клиент запускаем с отдельным контекстом, а не с сигнальным: при SIGTERM
-	// HTTP-сервер должен успеть дообработать текущие запросы, а клиент им нужен
-	if err := client.Start(context.Background(), errCh); err != nil {
-		return fmt.Errorf("starting rpc client: %w", err)
-	}
-
-	betClient := bets.NewBetClient(client, betsRequestsQueue)
+	defer func() {
+		stopClient()
+		<-clientDone
+	}()
 
 	r := gin.Default()
-	gw := gateway.Gateway{
-		Router:    r,
-		BetClient: betClient,
-	}
+	gw := gateway.NewGateway(r, betClient)
 	gw.SetupRouter()
 
 	srv := &http.Server{
@@ -107,13 +118,46 @@ func run() error {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Printf("Server forced to shutdown: %v", err)
 	}
-	log.Println("Server exited")
 
+	log.Println("Server exited")
 	return nil
+}
+
+func connectWithRetry(
+	ctx context.Context,
+	u *url.URL,
+	attempts int,
+	delay time.Duration,
+	connect func(context.Context, *url.URL) (*servers.RabbitmqClosable, error),
+) (*servers.RabbitmqClosable, error) {
+	var lastErr error
+	for i := 1; i <= attempts; i++ {
+		conn, err := connect(ctx, u)
+		if err == nil {
+			log.Println("Successfully connected to RabbitMQ")
+			return conn, nil
+		}
+		lastErr = err
+		log.Printf("Failed to connect to RabbitMQ (attempt %d/%d): %v", i, attempts, err)
+		if i == attempts {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(delay):
+		}
+	}
+	return nil, fmt.Errorf("could not connect to RabbitMQ after %d attempts: %w", attempts, lastErr)
+}
+
+func closeLogged(name string, c io.Closer) {
+	if err := c.Close(); err != nil {
+		log.Printf("%s close error: %v", name, err)
+	}
 }
 
 func getenv(key, def string) string {

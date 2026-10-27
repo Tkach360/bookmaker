@@ -3,118 +3,426 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Betting Service Gateway</title>
+    <meta name="theme-color" content="#f4f6f8">
+    <title>Betting Gateway — API</title>
+
     <style>
+        :root {
+            --primary: #3498db;
+            --primary-dark: #2477b4;
+            --success: #27ae60;
+            --purple: #8e44ad;
+            --background: #f4f6f8;
+            --surface: #ffffff;
+            --text: #2c3e50;
+            --muted: #6b7785;
+            --border: #e5eaf0;
+            --code-background: #172536;
+            --radius: 12px;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            background-color: #f4f6f8;
-            color: #333;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+                Roboto, Arial, sans-serif;
+            background-color: var(--background);
+            color: var(--text);
             margin: 0;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
+            padding: 40px 20px;
+            line-height: 1.6;
         }
+
         .container {
-            background: white;
-            padding: 2rem;
-            border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-            max-width: 500px;
             width: 100%;
+            max-width: 860px;
+            margin: 0 auto;
         }
-        h1 { color: #2c3e50; margin-top: 0; display: flex; align-items: center; gap: 10px; }
+
+        .header {
+            background: var(--surface);
+            padding: 28px 32px;
+            border-radius: var(--radius);
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.05);
+            margin-bottom: 28px;
+        }
+
+        .title-row {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        h1 {
+            font-size: clamp(1.6rem, 4vw, 2rem);
+            margin: 0;
+            color: var(--text);
+            line-height: 1.3;
+        }
+
         .status {
-            background: #2ecc71;
-            color: white;
-            padding: 0.2rem 0.6rem;
-            border-radius: 12px;
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            background: #e8f8ef;
+            color: #21864b;
+            padding: 5px 11px;
+            border-radius: 20px;
             font-size: 0.75rem;
-            font-weight: bold;
+            font-weight: 700;
             text-transform: uppercase;
         }
-        .endpoint {
-            background: #f8f9fa;
-            border-left: 4px solid #3498db;
-            padding: 1rem;
-            margin: 1rem 0;
-            border-radius: 4px;
+
+        .status::before {
+            content: "";
+            width: 7px;
+            height: 7px;
+            background: #27ae60;
+            border-radius: 50%;
         }
-        .endpoint.create {
-            border-left-color: #27ae60; /* Зеленый для создания */
+
+        .header p {
+            color: var(--muted);
+            margin: 16px 0 0;
         }
-        .endpoint code {
-            background: #e9ecef;
-            padding: 0.2rem 0.4rem;
-            border-radius: 4px;
-            color: #d63384;
-            font-family: monospace;
+
+        .architecture {
+            margin-top: 18px;
+            padding: 12px 16px;
+            background: #f2f7fc;
+            border-radius: 8px;
             font-size: 0.9rem;
         }
+
+        .architecture strong {
+            color: var(--primary-dark);
+        }
+
+        h2 {
+            font-size: 1.3rem;
+            margin: 30px 0 16px;
+        }
+
+        .endpoint-list {
+            display: grid;
+            gap: 18px;
+        }
+
+        .endpoint {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-left: 5px solid var(--primary);
+            border-radius: var(--radius);
+            padding: 22px 24px;
+            box-shadow: 0 3px 12px rgba(0, 0, 0, 0.035);
+        }
+
+        .endpoint.create {
+            border-left-color: var(--success);
+        }
+
+        .endpoint.details {
+            border-left-color: var(--purple);
+        }
+
+        .endpoint.collection {
+            border-left-color: #e67e22;
+        }
+
+        .endpoint-header {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 9px;
+            margin-bottom: 12px;
+        }
+
         .method {
             display: inline-block;
-            padding: 0.1rem 0.4rem;
-            border-radius: 4px;
-            font-weight: bold;
-            font-size: 0.75rem;
-            margin-right: 0.5rem;
+            padding: 4px 8px;
+            border-radius: 5px;
             color: white;
+            font-size: 0.75rem;
+            font-weight: 800;
+            letter-spacing: 0.3px;
         }
-        .method.get { background-color: #3498db; }
-        .method.post { background-color: #27ae60; }
+
+        .method.get {
+            background: var(--primary);
+        }
+
+        .method.post {
+            background: var(--success);
+        }
+
+        .endpoint h3 {
+            margin: 0;
+            font-size: 1.05rem;
+        }
+
+        .route {
+            display: inline-block;
+            background: #f0f3f6;
+            color: #be326b;
+            font: 600 0.95rem monospace;
+            padding: 6px 10px;
+            border-radius: 5px;
+            overflow-wrap: anywhere;
+        }
+
+        .endpoint p {
+            color: var(--muted);
+            margin: 12px 0;
+        }
+
+        .example-link {
+            font-size: 0.9rem;
+        }
+
+        a {
+            color: var(--primary-dark);
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+
+        .label {
+            display: block;
+            margin: 18px 0 7px;
+            font-size: 0.85rem;
+            font-weight: 700;
+            color: var(--text);
+        }
 
         pre {
-            background: #2c3e50;
-            color: #ecf0f1;
-            padding: 0.8rem;
-            border-radius: 4px;
+            background: var(--code-background);
+            color: #eaf0f6;
+            padding: 16px;
+            border-radius: 8px;
             overflow-x: auto;
-            font-size: 0.85rem;
-            margin-top: 0.5rem;
+            font: 0.85rem/1.65 "SFMono-Regular", Consolas,
+                "Liberation Mono", monospace;
+            margin: 8px 0 0;
+            white-space: pre;
+            tab-size: 2;
         }
 
-        a { color: #3498db; text-decoration: none; }
-        a:hover { text-decoration: underline; }
-        .footer { margin-top: 2rem; font-size: 0.85rem; color: #888; text-align: center; }
+        .note {
+            background: #fff9e9;
+            border: 1px solid #f2e2b8;
+            color: #785c20;
+            border-radius: 8px;
+            padding: 13px 16px;
+            margin-top: 18px;
+            font-size: 0.9rem;
+        }
+
+        .footer {
+            text-align: center;
+            color: #8a96a3;
+            font-size: 0.85rem;
+            padding: 28px 0 8px;
+        }
+
+        @media (max-width: 600px) {
+            body {
+                padding: 20px 12px;
+            }
+
+            .header {
+                padding: 22px 20px;
+            }
+
+            .endpoint {
+                padding: 18px;
+            }
+
+            h2 {
+                margin-top: 24px;
+            }
+
+            pre {
+                font-size: 0.78rem;
+                padding: 12px;
+            }
+        }
     </style>
 </head>
+
 <body>
-    <div class="container">
-        <h1>🎲 Betting Gateway <span class="status">Online</span></h1>
-        <p>API-шлюз микросервисной архитектуры ставок. Взаимодействие с backend-сервисами осуществляется асинхронно через RabbitMQ.</p>
+    <main class="container">
+        <header class="header">
+            <div class="title-row">
+                <h1>🎲 Betting Gateway</h1>
+                <span class="status">Online</span>
+            </div>
 
-        <h3>Доступные эндпоинты:</h3>
+            <p>
+                API-шлюз букмекерской системы. Gateway принимает HTTP-запросы
+                и взаимодействует с backend-микросервисами через RabbitMQ.
+            </p>
 
-        <div class="endpoint">
-            <strong><span class="method get">GET</span>Получить ставку</strong><br>
-            <code>/bet/:id</code><br>
-            <small>Пример: <a href="/bet/1">/bet/1</a></small>
-        </div>
+            <div class="architecture">
+                <strong>Технологии:</strong>
+                Go · Gin · RabbitMQ · AsyncAPI
+            </div>
+        </header>
 
-        <div class="endpoint create">
-            <strong><span class="method post">POST</span>Создать ставку</strong><br>
-            <code>/bet</code><br>
-            <small>Создает новую ставку для пользователя на указанное событие.</small>
-            <pre>
-{
+        <section>
+            <h2>Доступные эндпоинты</h2>
+
+            <div class="endpoint-list">
+                <!-- Получение одной ставки -->
+                <article class="endpoint">
+                    <div class="endpoint-header">
+                        <span class="method get">GET</span>
+                        <h3>Получить ставку</h3>
+                    </div>
+
+                    <code class="route">/bet/:id</code>
+
+                    <p>
+                        Возвращает ставку по её идентификатору.
+                        В ответе содержатся ID ставки, ID события,
+                        сумма и пользователь.
+                    </p>
+
+                    <div class="example-link">
+                        <a href="/bet/1">Открыть пример: /bet/1</a>
+                    </div>
+
+                    <span class="label">Пример ответа</span>
+                    <pre>{
+  "id": 1,
+  "event_id": 1,
+  "amount": "1000",
+  "user": "Вячеслав"
+}</pre>
+                </article>
+
+                <!-- Создание ставки -->
+                <article class="endpoint create">
+                    <div class="endpoint-header">
+                        <span class="method post">POST</span>
+                        <h3>Создать ставку</h3>
+                    </div>
+
+                    <code class="route">/bet</code>
+
+                    <p>
+                        Создаёт ставку для указанного пользователя на выбранное
+                        событие. Сумма передаётся строкой в десятичном формате.
+                    </p>
+
+                    <span class="label">Тело запроса — JSON</span>
+                    <pre>{
   "user_id": 1,
   "event_id": 1,
   "amount": "100.50"
 }</pre>
-            <small>Пример curl:</small>
-            <pre>
-curl -X POST http://localhost:8080/bet \
+
+                    <span class="label">Пример запроса через curl</span>
+                    <pre>curl -X POST http://localhost:8080/bet \
   -H "Content-Type: application/json" \
-  -d '{"user_id":1, "event_id":1, "amount":"100.50"}'</pre>
-        </div>
+  -d '{"user_id":1,"event_id":1,"amount":"100.50"}'</pre>
 
-        <div class="endpoint">
-            <strong><span class="method get">GET</span>Получить событие</strong><br>
-            <code>/event/:id</code><br>
-            <small>Пример: <a href="/event/1">/event/1</a></small>
-        </div>
+                    <div class="note">
+                        Если событие не найдено или не принимает ставки,
+                        сервис возвращает соответствующую ошибку.
+                    </div>
+                </article>
 
-        <div class="footer">Powered by Go, Gin & RabbitMQ</div>
-    </div>
+                <!-- Получение ставки вместе с событием -->
+                <article class="endpoint details">
+                    <div class="endpoint-header">
+                        <span class="method get">GET</span>
+                        <h3>Получить ставку и информацию о событии</h3>
+                    </div>
+
+                    <code class="route">/bet/:id/details</code>
+
+                    <p>
+                        Возвращает ставку вместе с информацией о связанном
+                        событии, включая коэффициент и статус события.
+                    </p>
+
+                    <div class="example-link">
+                        <a href="/bet/1/details">
+                            Открыть пример: /bet/1/details
+                        </a>
+                    </div>
+
+                    <span class="label">Пример ответа</span>
+                    <pre>{
+  "bet": {
+    "id": 1,
+    "event_id": 1,
+    "amount": "1000",
+    "user": "Вячеслав"
+  },
+  "event": {
+    "event_id": 1,
+    "coefficient": "0.6",
+    "status": "open"
+  }
+}</pre>
+                </article>
+
+                <!-- Получение ставок на событие -->
+                <article class="endpoint collection">
+                    <div class="endpoint-header">
+                        <span class="method get">GET</span>
+                        <h3>Получить все ставки на событие</h3>
+                    </div>
+
+                    <code class="route">/event/:id/bets</code>
+
+                    <p>
+                        Возвращает список ставок, связанных с указанным событием.
+                        В ответ включаются ID события и массив ставок.
+                    </p>
+
+                    <div class="example-link">
+                        <a href="/event/1/bets">
+                            Открыть пример: /event/1/bets
+                        </a>
+                    </div>
+
+                    <span class="label">Пример ответа</span>
+                    <pre>{
+  "event_id": 1,
+  "bets": [
+    {
+      "id": 1,
+      "event_id": 1,
+      "amount": "1000",
+      "user": "Вячеслав"
+    },
+    {
+      "id": 2,
+      "event_id": 1,
+      "amount": "250.50",
+      "user": "Анна"
+    }
+  ]
+}</pre>
+
+                    <div class="note">
+                        Если ставок нет, ожидаемый формат ответа содержит
+                        пустой массив: "bets": [].
+                    </div>
+                </article>
+            </div>
+        </section>
+
+        <footer class="footer">
+            Betting Gateway · Powered by Go, Gin &amp; RabbitMQ
+        </footer>
+    </main>
 </body>
 </html>

@@ -1,0 +1,6 @@
+github.com/bdragon300/go-asyncapi/run v0.0.0-20260822140252-d266c6c16c75 h1:GgRWvUgqN3nWEdlyRH1/3vXe9sb5R3ZME4wUHvBl458=
+github.com/bdragon300/go-asyncapi/run v0.0.0-20260822140252-d266c6c16c75/go.mod h1:/PQqTl091uvEAtOQYrySd4Rd4R7hWQoCv0EmeDNqSq4=
+github.com/rabbitmq/amqp091-go v1.16.0 h1:1O8oQqnj9hLACoo6CVMgn57z2pLWXvgemhh4GsquV+Y=
+github.com/rabbitmq/amqp091-go v1.16.0/go.mod h1:Hy4jKW5kQART1u+JkDTF9YYOQUHXqMuhrgxOEeS7G4o=
+go.uber.org/goleak v1.3.0 h1:2K3zAYmnTNqV73imy9J1T3WC+gmCePx2hEGkimedGto=
+go.uber.org/goleak v1.3.0/go.mod h1:CoHD4mav9JJNrW/WLlf7HGZPjdw8EucARQHekz1X6bE=

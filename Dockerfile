@@ -14,6 +14,8 @@ ENV GOPROXY=${GOPROXY}
 
 COPY . .
 
+RUN go work edit -dropuse=./tests/e2e
+
 ARG SERVICE
 RUN test -n "$SERVICE" || (echo "build arg SERVICE is required" >&2; exit 1)
 

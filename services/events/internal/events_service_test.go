@@ -1,12 +1,11 @@
 package internal
 
 import (
-	"bookmaker/pkg/rmq"
-	"bookmaker/pkg/store"
-	"bookmaker/shared/dto"
-	"encoding/json"
 	"errors"
 	"testing"
+
+	"bookmaker/pkg/store"
+	"bookmaker/shared/dto"
 
 	"github.com/shopspring/decimal"
 )
@@ -17,29 +16,25 @@ func newTestService() *EventService {
 	s.Put(2, dto.Event{Id: 2, Coefficient: decimal.NewFromFloat(0.2), IsWin: true, IsTook: true})
 	s.Put(3, dto.Event{Id: 3, Coefficient: decimal.NewFromFloat(0.9), IsWin: false, IsTook: true})
 
-	return &EventService{Store: s}
+	return NewEventService(s)
 }
 
-func TestHandleGetEvent(t *testing.T) {
+func TestGetEvent(t *testing.T) {
 	svc := newTestService()
 
 	tests := []struct {
-		name       string
-		id         int
-		wantStatus rmq.RPCResponseStatus
-		wantErr    error // nil - ошибки быть не должно
+		name    string
+		id      int
+		wantErr error // nil - ошибки быть не должно
 	}{
-		{"событие найдено", 1, rmq.STATUS_OK, nil},
-		{"событие не найдено", 99, dto.STATUS_NOT_FOUND, store.ErrNotFound},
+		{"событие найдено", 1, nil},
+		{"событие не найдено", 99, store.ErrNotFound},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			event, status, err := svc.handleGetEvent(dto.GetEventRequest{Id: tt.id})
+			event, err := svc.GetEvent(tt.id)
 
-			if status != tt.wantStatus {
-				t.Errorf("status = %q, want %q", status, tt.wantStatus)
-			}
 			if !errors.Is(err, tt.wantErr) {
 				t.Errorf("err = %v, want %v", err, tt.wantErr)
 			}
@@ -50,48 +45,41 @@ func TestHandleGetEvent(t *testing.T) {
 	}
 }
 
-func TestHandleGetEventStatus(t *testing.T) {
+func TestGetEventStatus(t *testing.T) {
 	svc := newTestService()
 
 	tests := []struct {
-		name            string
-		id              int
-		wantEventStatus dto.EventStatus
-		wantStatus      rmq.RPCResponseStatus
-		wantErr         error
+		name       string
+		id         int
+		wantStatus dto.EventStatus
+		wantErr    error
 	}{
-		{"событие ещё не произошло", 1, dto.EVENT_STATUS_OPEN, rmq.STATUS_OK, nil},
-		{"событие произошло, выиграло", 2, dto.EVENT_STATUS_WIN, rmq.STATUS_OK, nil},
-		{"событие произошло, проиграло", 3, dto.EVENT_STATUS_LOSS, rmq.STATUS_OK, nil},
-		{"событие не найдено", 99, "", dto.STATUS_NOT_FOUND, store.ErrNotFound},
+		{"событие ещё не произошло", 1, dto.EVENT_STATUS_OPEN, nil},
+		{"событие произошло, выиграло", 2, dto.EVENT_STATUS_WIN, nil},
+		{"событие произошло, проиграло", 3, dto.EVENT_STATUS_LOSS, nil},
+		{"событие не найдено", 99, "", store.ErrNotFound},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			reply, status, err := svc.handleGetEventStatus(dto.GetEventRequest{Id: tt.id})
+			reply, err := svc.GetEventStatus(tt.id)
 
-			if status != tt.wantStatus {
-				t.Errorf("status = %q, want %q", status, tt.wantStatus)
-			}
 			if !errors.Is(err, tt.wantErr) {
 				t.Errorf("err = %v, want %v", err, tt.wantErr)
 			}
 			if tt.wantErr != nil {
-				return // при ошибке содержимое ответа не проверяем: клиент его не получит
+				return
 			}
-			if reply.EventID != tt.id {
-				t.Errorf("reply.EventID = %d, want %d", reply.EventID, tt.id)
-			}
-			if reply.Status != tt.wantEventStatus {
-				t.Errorf("reply.Status = %q, want %q", reply.Status, tt.wantEventStatus)
+			if reply.EventID != tt.id || reply.Status != tt.wantStatus {
+				t.Errorf("reply = %+v, want event %d with status %q", reply, tt.id, tt.wantStatus)
 			}
 		})
 	}
 }
 
-// failingStore всегда возвращает ошибку, отличную от store.ErrNotFound
+// failingStore всегда возвращает ошибку, отличную от store.ErrNotFound.
 // Остальные методы интерфейса не реализованы: при вызове будет паника,
-// а обработчикам они не нужны
+// а тестируемым методам они не нужны.
 type failingStore struct {
 	store.Store[dto.Event]
 }
@@ -100,177 +88,97 @@ func (failingStore) Get(int) (dto.Event, error) {
 	return dto.Event{}, errors.New("storage unavailable")
 }
 
-func TestHandlers_StoreError(t *testing.T) {
-	svc := &EventService{Store: failingStore{}}
+func TestStoreError(t *testing.T) {
+	svc := NewEventService(failingStore{})
 
 	t.Run("GetEvent", func(t *testing.T) {
-		_, status, err := svc.handleGetEvent(dto.GetEventRequest{Id: 1})
-
-		if status != rmq.STATUS_ERROR {
-			t.Errorf("status = %q, want %q", status, rmq.STATUS_ERROR)
-		}
+		_, err := svc.GetEvent(1)
 		if err == nil || errors.Is(err, store.ErrNotFound) {
 			t.Errorf("err = %v, want non-nil and not ErrNotFound", err)
 		}
 	})
 
 	t.Run("GetEventStatus", func(t *testing.T) {
-		_, status, err := svc.handleGetEventStatus(dto.GetEventRequest{Id: 1})
-
-		if status != rmq.STATUS_ERROR {
-			t.Errorf("status = %q, want %q", status, rmq.STATUS_ERROR)
-		}
+		_, err := svc.GetEventStatus(1)
 		if err == nil || errors.Is(err, store.ErrNotFound) {
 			t.Errorf("err = %v, want non-nil and not ErrNotFound", err)
 		}
 	})
 }
 
-// Проверяет формат на проводе JSON-запрос -> обработчик -> JSON-ответ RPCResponse
-// Именно здесь ловится несовпадение имён полей между клиентом и сервером
-// при неверном теге id придет нулевой и событие "не найдется"
-func TestGetEventStatus_WireFormat(t *testing.T) {
-	handler := rmq.HandlerWrap(newTestService().handleGetEventStatus)
-
-	raw, err := handler([]byte(`{"event_id":2}`))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	var resp rmq.RPCResponse
-	if err := json.Unmarshal(raw, &resp); err != nil {
-		t.Fatalf("response is not valid RPCResponse json: %v", err)
-	}
-	if resp.Err != "" || resp.Status != rmq.STATUS_OK {
-		t.Fatalf("resp = {err: %q, status: %q}, want empty error and %q", resp.Err, resp.Status, rmq.STATUS_OK)
-	}
-
-	var reply dto.EventStatusResponse
-	if err := json.Unmarshal(resp.Payload, &reply); err != nil {
-		t.Fatalf("payload is not valid EventStatusReply json: %v", err)
-	}
-	if reply.EventID != 2 || reply.Status != dto.EVENT_STATUS_WIN {
-		t.Errorf("reply = %+v, want event 2 with status %q", reply, dto.EVENT_STATUS_WIN)
-	}
-}
-
-// Ошибка сервиса не должна теряться: клиент определяет "не найдено" по статусу ответа.
-func TestGetEventStatus_WireFormatNotFound(t *testing.T) {
-	handler := rmq.HandlerWrap(newTestService().handleGetEventStatus)
-
-	raw, err := handler([]byte(`{"id":99}`))
-	if err != nil {
-		t.Fatalf("unexpected transport error: %v", err)
-	}
-
-	var resp rmq.RPCResponse
-	if err := json.Unmarshal(raw, &resp); err != nil {
-		t.Fatalf("response is not valid RPCResponse json: %v", err)
-	}
-	if resp.Status != dto.STATUS_NOT_FOUND {
-		t.Errorf("status = %q, want %q", resp.Status, dto.STATUS_NOT_FOUND)
-	}
-	if resp.Err == "" {
-		t.Error("expected non-empty error in response")
-	}
-}
-
-func TestGetEventStatus_BadRequest(t *testing.T) {
-	handler := rmq.HandlerWrap(newTestService().handleGetEventStatus)
-
-	if _, err := handler([]byte(`not json`)); err == nil {
-		t.Error("expected error for malformed request body")
-	}
-}
-
-func TestHandleCreateEvent(t *testing.T) {
+func TestCreateEvent(t *testing.T) {
 	svc := newTestService()
 
 	tests := []struct {
 		name        string
 		coefficient decimal.Decimal
-		wantStatus  rmq.RPCResponseStatus
-		wantErr     error // nil - ошибки быть не должно
+		wantErr     error
 	}{
-		{"событие создано", decimal.NewFromFloat(0.2), rmq.STATUS_OK, nil},
-		{"событие не создано, коэф 1", decimal.NewFromFloat(1), rmq.STATUS_ERROR, ErrInvalidCoefficient},
-		{"событие не создано, коэф 2", decimal.NewFromFloat(2), rmq.STATUS_ERROR, ErrInvalidCoefficient},
-		{"событие не создано, коэф 0", decimal.NewFromFloat(0), rmq.STATUS_ERROR, ErrInvalidCoefficient},
-		{"событие не созданоб коэф -1", decimal.NewFromFloat(-1), rmq.STATUS_ERROR, ErrInvalidCoefficient},
+		{"событие создано", decimal.NewFromFloat(0.2), nil},
+		{"событие не создано, коэф 1", decimal.NewFromFloat(1), ErrInvalidCoefficient},
+		{"событие не создано, коэф 2", decimal.NewFromFloat(2), ErrInvalidCoefficient},
+		{"событие не создано, коэф 0", decimal.NewFromFloat(0), ErrInvalidCoefficient},
+		{"событие не создано, коэф -1", decimal.NewFromFloat(-1), ErrInvalidCoefficient},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			event, status, err := svc.handleCreateEvent(dto.CreateEventRequest{Coefficient: tt.coefficient})
+			event, err := svc.CreateEvent(tt.coefficient)
 
-			if status != tt.wantStatus {
-				t.Errorf("status = %q, want %q", status, tt.wantStatus)
-			}
 			if !errors.Is(err, tt.wantErr) {
 				t.Errorf("err = %v, want %v", err, tt.wantErr)
 			}
-			if tt.wantErr == nil && event.Coefficient != tt.coefficient {
-				t.Errorf("event.Coefficient = %d, want %d", event.Coefficient, tt.coefficient)
+			if tt.wantErr != nil {
+				return
+			}
+			if !event.Coefficient.Equal(tt.coefficient) {
+				t.Errorf("event.Coefficient = %v, want %v", event.Coefficient, tt.coefficient)
 			}
 
-			if tt.wantErr == nil {
-				storeEvent, err := svc.Store.Get(event.Id)
-				if err != nil {
-					t.Errorf("could not get event from store, err = %v", err)
-				}
-
-				if storeEvent.Id != event.Id || storeEvent.IsTook != false || storeEvent.IsWin != false {
-					t.Errorf("invalid event state in store, id = %d, IsTook = %v, IsWin = %v", storeEvent.Id, storeEvent.IsTook, storeEvent.IsWin)
-				}
+			stored, err := svc.Store.Get(event.Id)
+			if err != nil {
+				t.Fatalf("could not get event from store, err = %v", err)
+			}
+			if stored.Id != event.Id || stored.IsTook || stored.IsWin {
+				t.Errorf("invalid event state in store: %+v", stored)
 			}
 		})
 	}
 }
 
-func TestHandleSetEventStatus(t *testing.T) {
+func TestSetEventStatus(t *testing.T) {
 	tests := []struct {
 		name              string
 		setupStore        func() store.Store[dto.Event]
-		request           dto.SetEventStatusRequest
-		wantStatus        rmq.RPCResponseStatus
+		id                int
+		status            dto.EventStatus
 		wantErr           error
-		wantReplyStatus   dto.EventStatus
 		checkStoreUpdated bool
 	}{
 		{
 			name: "успешно: установка статуса WIN",
 			setupStore: func() store.Store[dto.Event] {
 				s := store.NewMapStore[dto.Event]()
-				s.Put(1, dto.Event{Id: 1, IsTook: false, IsWin: false})
+				s.Put(1, dto.Event{Id: 1})
 				return s
 			},
-			request:           dto.SetEventStatusRequest{Id: 1, Status: dto.EVENT_STATUS_WIN},
-			wantStatus:        rmq.STATUS_OK,
-			wantErr:           nil,
-			wantReplyStatus:   dto.EVENT_STATUS_WIN,
-			checkStoreUpdated: true,
+			id: 1, status: dto.EVENT_STATUS_WIN, checkStoreUpdated: true,
 		},
 		{
 			name: "успешно: установка статуса LOSS",
 			setupStore: func() store.Store[dto.Event] {
 				s := store.NewMapStore[dto.Event]()
-				s.Put(2, dto.Event{Id: 2, IsTook: false, IsWin: false})
+				s.Put(2, dto.Event{Id: 2})
 				return s
 			},
-			request:           dto.SetEventStatusRequest{Id: 2, Status: dto.EVENT_STATUS_LOSS},
-			wantStatus:        rmq.STATUS_OK,
-			wantErr:           nil,
-			wantReplyStatus:   dto.EVENT_STATUS_LOSS,
-			checkStoreUpdated: true,
+			id: 2, status: dto.EVENT_STATUS_LOSS, checkStoreUpdated: true,
 		},
 		{
 			name: "ошибка: событие не найдено",
 			setupStore: func() store.Store[dto.Event] {
 				return store.NewMapStore[dto.Event]()
 			},
-			request:    dto.SetEventStatusRequest{Id: 99, Status: dto.EVENT_STATUS_WIN},
-			wantStatus: dto.STATUS_NOT_FOUND,
-			wantErr:    nil, // В исходном коде ошибка не возвращается, только статус
+			id: 99, status: dto.EVENT_STATUS_WIN, wantErr: store.ErrNotFound,
 		},
 		{
 			name: "ошибка: событие уже закрыто",
@@ -279,50 +187,42 @@ func TestHandleSetEventStatus(t *testing.T) {
 				s.Put(3, dto.Event{Id: 3, IsTook: true})
 				return s
 			},
-			request:    dto.SetEventStatusRequest{Id: 3, Status: dto.EVENT_STATUS_WIN},
-			wantStatus: rmq.STATUS_ERROR,
-			wantErr:    ErrEventCannotReopened,
+			id: 3, status: dto.EVENT_STATUS_WIN, wantErr: ErrEventCannotReopened,
 		},
 		{
 			name: "ошибка: неожиданный статус",
 			setupStore: func() store.Store[dto.Event] {
 				s := store.NewMapStore[dto.Event]()
-				s.Put(4, dto.Event{Id: 4, IsTook: false})
+				s.Put(4, dto.Event{Id: 4})
 				return s
 			},
-			request:    dto.SetEventStatusRequest{Id: 4, Status: "INVALID_STATUS"},
-			wantStatus: rmq.STATUS_ERROR,
-			wantErr:    ErrUnexpectedEventStatus,
+			id: 4, status: "INVALID_STATUS", wantErr: ErrUnexpectedEventStatus,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			svc := &EventService{Store: tt.setupStore()}
+			svc := NewEventService(tt.setupStore())
 
-			reply, status, err := svc.handleSetEventStatus(tt.request)
+			reply, err := svc.SetEventStatus(tt.id, tt.status)
 
-			if status != tt.wantStatus {
-				t.Errorf("status = %q, want %q", status, tt.wantStatus)
-			}
 			if !errors.Is(err, tt.wantErr) {
 				t.Errorf("err = %v, want %v", err, tt.wantErr)
 			}
-			if tt.wantErr == nil && reply.Status != tt.wantReplyStatus {
-				t.Errorf("reply.Status = %q, want %q", reply.Status, tt.wantReplyStatus)
+			if tt.wantErr == nil && (reply.EventID != tt.id || reply.Status != tt.status) {
+				t.Errorf("reply = %+v, want event %d with status %q", reply, tt.id, tt.status)
 			}
 
 			if tt.checkStoreUpdated {
-				updatedEvent, getErr := svc.Store.Get(tt.request.Id)
+				updated, getErr := svc.Store.Get(tt.id)
 				if getErr != nil {
 					t.Fatalf("failed to get updated event from store: %v", getErr)
 				}
-				if !updatedEvent.IsTook {
-					t.Errorf("expected event.IsTook to be true")
+				if !updated.IsTook {
+					t.Error("expected event.IsTook to be true")
 				}
-				expectedWin := tt.request.Status == dto.EVENT_STATUS_WIN
-				if updatedEvent.IsWin != expectedWin {
-					t.Errorf("expected event.IsWin to be %v, got %v", expectedWin, updatedEvent.IsWin)
+				if wantWin := tt.status == dto.EVENT_STATUS_WIN; updated.IsWin != wantWin {
+					t.Errorf("expected event.IsWin to be %v, got %v", wantWin, updated.IsWin)
 				}
 			}
 		})

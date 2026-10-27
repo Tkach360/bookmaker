@@ -6,6 +6,7 @@ type Store[T any] interface {
 	Get(id int) (T, error)
 	Put(id int, obj T) error
 	Delete(id int) error
+	FindBy(func(T) bool) ([]T, error)
 }
 
 type MapStore[T any] struct {
@@ -38,4 +39,14 @@ func (m MapStore[T]) Put(id int, obj T) error {
 func (m MapStore[T]) Delete(id int) error {
 	delete(m.data, id)
 	return nil
+}
+
+func (m MapStore[T]) FindBy(f func(t T) bool) ([]T, error) {
+	var objs []T
+	for _, v := range m.data {
+		if f(v) {
+			objs = append(objs, v)
+		}
+	}
+	return objs, nil
 }

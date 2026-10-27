@@ -1,0 +1,28 @@
+projectModule: bookmaker
+runtimeModule: github.com/bdragon300/go-asyncapi/run
+
+code:
+  targetDir: ./generated
+
+services:
+  gateway:
+    send:
+      - gatewayGetBet
+      - gatewayCreateBet
+      - gatewayGetEvent
+      - gatewayGetEventStatus
+      - gatewayCreateEvent
+      - gatewaySetEventStatus
+    receive:
+      - gatewayReceiveResponses
+
+  bets:
+    receive:
+      - betsReceiveRequests
+      - betsReceiveEventResponses
+    send:
+      - betsRequestEvents
+
+  events:
+    receive:
+      - eventsReceiveRequests

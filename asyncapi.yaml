@@ -1,0 +1,751 @@
+asyncapi: 3.0.0
+
+info:
+  title: Bookmaker API
+  version: 1.5.0
+  description: >
+    Контракт асинхронного взаимодействия микросервисов bookmaker через RabbitMQ.
+    Запросы передают correlationId и replyTo. replyTo здесь является прикладным
+    заголовком с именем одной из заранее определённых очередей ответов, а не
+    автоматической настройкой маршрутизации RabbitMQ.
+
+servers:
+  rabbitmq:
+    host: localhost:5672
+    protocol: amqp
+    protocolVersion: "0-9-1"
+    description: RabbitMQ broker
+
+defaultContentType: application/json
+
+channels:
+  betsRequests:
+    address: bets.requests
+    description: Запросы gateway к сервису ставок
+    messages:
+      getBetRequest:
+        $ref: '#/components/messages/GetBetRequest'
+      getBetDetailsRequest:
+        $ref: '#/components/messages/GetBetDetailsRequest'
+      getBetsByEventRequest:
+        $ref: '#/components/messages/GetBetsByEventRequest'
+      createBetRequest:
+        $ref: '#/components/messages/CreateBetRequest'
+    bindings:
+      amqp: # указываю какой протокол использую
+        is: queue # канал является очередью, а не exchange или routing key
+        queue:
+          name: bets.requests
+          durable: true # очередь будет сохраняться между перезапусками
+
+  betsResponses:
+    address: bets.responses
+    description: Ответы events на запросы сервиса bets
+    messages:
+      eventResponse:
+        $ref: '#/components/messages/Event'
+      eventStatusResponse:
+        $ref: '#/components/messages/EventStatusResponse'
+      errorResponse:
+        $ref: '#/components/messages/ErrorResponse'
+    bindings:
+      amqp:
+        is: queue
+        queue:
+          name: bets.responses
+          durable: true
+
+  eventsRequests:
+    address: events.requests
+    description: Запросы gateway и bets к сервису events
+    messages:
+      getEventRequest:
+        $ref: '#/components/messages/GetEventRequest'
+      getEventStatusRequest:
+        $ref: '#/components/messages/GetEventStatusRequest'
+      createEventRequest:
+        $ref: '#/components/messages/CreateEventRequest'
+      setEventStatusRequest:
+        $ref: '#/components/messages/SetEventStatusRequest'
+      getEventsRequest:
+        $ref: '#/components/messages/GetEventsRequest'
+    bindings:
+      amqp:
+        is: queue
+        queue:
+          name: events.requests
+          durable: true
+
+  gatewayResponses:
+    address: gateway.responses
+    description: Ответы bets и events на запросы gateway
+    messages:
+      betResponse:
+        $ref: '#/components/messages/Bet'
+      betDetailsResponse:
+        $ref: '#/components/messages/BetDetails'
+      betsByEventResponse:
+        $ref: '#/components/messages/BetsByEvent'
+      eventResponse:
+        $ref: '#/components/messages/Event'
+      eventStatusResponse:
+        $ref: '#/components/messages/EventStatusResponse'
+      errorResponse:
+        $ref: '#/components/messages/ErrorResponse'
+      eventsResponse:
+        $ref: '#/components/messages/EventsResponse'
+    bindings:
+      amqp:
+        is: queue
+        queue:
+          name: gateway.responses
+          durable: true
+          exclusive: false
+          autoDelete: false
+
+operations:
+
+  gatewayGetEvents:
+    action: send
+    title: Получить список событий
+    channel:
+      $ref: '#/channels/eventsRequests'
+    messages:
+      - $ref: '#/channels/eventsRequests/messages/getEventsRequest'
+
+  gatewayGetBet:
+    action: send
+    channel:
+      $ref: '#/channels/betsRequests'
+    messages:
+      - $ref: '#/channels/betsRequests/messages/getBetRequest'
+
+  gatewayGetBetDetails:
+    action: send
+    channel:
+      $ref: '#/channels/betsRequests'
+    messages:
+      - $ref: '#/channels/betsRequests/messages/getBetDetailsRequest'
+
+  gatewayGetBetsByEvent:
+    action: send
+    channel:
+      $ref: '#/channels/betsRequests'
+    messages:
+      - $ref: '#/channels/betsRequests/messages/getBetsByEventRequest'
+
+  gatewayCreateBet:
+    action: send
+    channel:
+      $ref: '#/channels/betsRequests'
+    messages:
+      - $ref: '#/channels/betsRequests/messages/createBetRequest'
+
+
+  gatewayGetEvent:
+    action: send
+    channel:
+      $ref: '#/channels/eventsRequests'
+    messages:
+      - $ref: '#/channels/eventsRequests/messages/getEventRequest'
+
+  gatewayGetEventStatus:
+    action: send
+    channel:
+      $ref: '#/channels/eventsRequests'
+    messages:
+      - $ref: '#/channels/eventsRequests/messages/getEventStatusRequest'
+
+  gatewayCreateEvent:
+    action: send
+    channel:
+      $ref: '#/channels/eventsRequests'
+    messages:
+      - $ref: '#/channels/eventsRequests/messages/createEventRequest'
+
+  gatewaySetEventStatus:
+    action: send
+    channel:
+      $ref: '#/channels/eventsRequests'
+    messages:
+      - $ref: '#/channels/eventsRequests/messages/setEventStatusRequest'
+
+
+  betsReceiveRequests:
+    action: receive
+    channel:
+      $ref: '#/channels/betsRequests'
+    messages:
+      - $ref: '#/channels/betsRequests/messages/getBetRequest'
+      - $ref: '#/channels/betsRequests/messages/getBetDetailsRequest'
+      - $ref: '#/channels/betsRequests/messages/getBetsByEventRequest'
+      - $ref: '#/channels/betsRequests/messages/createBetRequest'
+
+
+  betsRequestEvents:
+    action: send
+    channel:
+      $ref: '#/channels/eventsRequests'
+    messages:
+      - $ref: '#/channels/eventsRequests/messages/getEventRequest'
+      - $ref: '#/channels/eventsRequests/messages/getEventStatusRequest'
+
+
+  eventsReceiveRequests:
+    action: receive
+    channel:
+      $ref: '#/channels/eventsRequests'
+    messages:
+      - $ref: '#/channels/eventsRequests/messages/getEventRequest'
+      - $ref: '#/channels/eventsRequests/messages/getEventStatusRequest'
+      - $ref: '#/channels/eventsRequests/messages/createEventRequest'
+      - $ref: '#/channels/eventsRequests/messages/setEventStatusRequest'
+      - $ref: '#/channels/eventsRequests/messages/getEventsRequest'
+
+
+  eventsSendResponsesToBets:
+    action: send
+    channel:
+      $ref: '#/channels/betsResponses'
+    messages:
+      - $ref: '#/channels/betsResponses/messages/eventResponse'
+      - $ref: '#/channels/betsResponses/messages/eventStatusResponse'
+      - $ref: '#/channels/betsResponses/messages/errorResponse'
+
+
+  betsSendResponsesToGateway:
+    action: send
+    channel:
+      $ref: '#/channels/gatewayResponses'
+    messages:
+      - $ref: '#/channels/gatewayResponses/messages/betResponse'
+      - $ref: '#/channels/gatewayResponses/messages/betDetailsResponse'
+      - $ref: '#/channels/gatewayResponses/messages/betsByEventResponse'
+      - $ref: '#/channels/gatewayResponses/messages/errorResponse'
+
+
+  eventsSendResponsesToGateway:
+    action: send
+    channel:
+      $ref: '#/channels/gatewayResponses'
+    messages:
+      - $ref: '#/channels/gatewayResponses/messages/eventResponse'
+      - $ref: '#/channels/gatewayResponses/messages/eventStatusResponse'
+      - $ref: '#/channels/gatewayResponses/messages/errorResponse'
+      - $ref: '#/channels/gatewayResponses/messages/eventsResponse'
+
+
+  gatewayReceiveResponses:
+    action: receive
+    channel:
+      $ref: '#/channels/gatewayResponses'
+    messages:
+      - $ref: '#/channels/gatewayResponses/messages/betResponse'
+      - $ref: '#/channels/gatewayResponses/messages/betDetailsResponse'
+      - $ref: '#/channels/gatewayResponses/messages/betsByEventResponse'
+      - $ref: '#/channels/gatewayResponses/messages/eventResponse'
+      - $ref: '#/channels/gatewayResponses/messages/eventStatusResponse'
+      - $ref: '#/channels/gatewayResponses/messages/errorResponse'
+      - $ref: '#/channels/gatewayResponses/messages/eventsResponse'
+
+
+  betsReceiveEventResponses:
+    action: receive
+    channel:
+      $ref: '#/channels/betsResponses'
+    messages:
+      - $ref: '#/channels/betsResponses/messages/eventResponse'
+      - $ref: '#/channels/betsResponses/messages/eventStatusResponse'
+      - $ref: '#/channels/betsResponses/messages/errorResponse'
+
+components:
+  messages:
+    EventsResponse:
+      name: EventsResponse
+      title: Список событий
+      correlationId:
+        location: '$message.header#/correlationId'
+      headers:
+        type: object
+        required: [messageType, correlationId]
+        properties:
+          messageType:
+            type: string
+            enum: [EventsResponse]
+          correlationId:
+            type: string
+      payload:
+        $ref: '#/components/schemas/EventsResponse'
+
+    GetEventsRequest:
+      name: GetEventsRequest
+      title: Получить список событий
+      correlationId:
+        location: '$message.header#/correlationId'
+      headers:
+        type: object
+        required: [messageType, correlationId, replyTo]
+        properties:
+          messageType:
+            type: string
+            enum: [GetEventsRequest]
+          correlationId:
+            type: string
+            description: Идентификатор для сопоставления запроса и ответа.
+          replyTo:
+            type: string
+            enum: [gateway.responses]
+            description: Очередь для отправки ответа.
+      payload:
+        $ref: '#/components/schemas/GetEventsRequest'
+
+    GetBetRequest:
+      name: GetBetRequest
+      title: Получить ставку
+      correlationId:
+        location: '$message.header#/correlationId'
+      headers:
+        type: object
+        required: [messageType, correlationId, replyTo]
+        properties:
+          messageType:
+            type: string
+            enum: [GetBetRequest]
+          correlationId:
+            type: string
+            description: Уникальный идентификатор запроса для сопоставления ответа.
+          replyTo:
+            type: string
+            enum: [gateway.responses]
+            description: Прикладной адрес очереди ответов.
+      payload:
+        $ref: '#/components/schemas/GetBetRequest'
+
+    GetBetDetailsRequest:
+      name: GetBetDetailsRequest
+      title: Получить ставку вместе с информацией о событии
+      correlationId:
+        location: '$message.header#/correlationId'
+      headers:
+        type: object
+        required: [messageType, correlationId, replyTo]
+        properties:
+          messageType:
+            type: string
+            enum: [GetBetDetailsRequest]
+          correlationId:
+            type: string
+            description: Уникальный идентификатор запроса для сопоставления ответа.
+          replyTo:
+            type: string
+            enum: [gateway.responses]
+            description: Прикладной адрес очереди ответов.
+      payload:
+        $ref: '#/components/schemas/GetBetDetailsRequest'
+
+    GetBetsByEventRequest:
+      name: GetBetsByEventRequest
+      title: Получить все ставки на событие
+      correlationId:
+        location: '$message.header#/correlationId'
+      headers:
+        type: object
+        required: [messageType, correlationId, replyTo]
+        properties:
+          messageType:
+            type: string
+            enum: [GetBetsByEventRequest]
+          correlationId:
+            type: string
+            description: Уникальный идентификатор запроса для сопоставления ответа.
+          replyTo:
+            type: string
+            enum: [gateway.responses]
+            description: Прикладной адрес очереди ответов.
+      payload:
+        $ref: '#/components/schemas/GetBetsByEventRequest'
+
+    CreateBetRequest:
+      name: CreateBetRequest
+      title: Создать ставку
+      correlationId:
+        location: '$message.header#/correlationId'
+      headers:
+        type: object
+        required: [messageType, correlationId, replyTo]
+        properties:
+          messageType:
+            type: string
+            enum: [CreateBetRequest]
+          correlationId:
+            type: string
+          replyTo:
+            type: string
+            enum: [gateway.responses]
+            description: Прикладной адрес очереди ответов.
+      payload:
+        $ref: '#/components/schemas/CreateBetRequest'
+
+    GetEventRequest:
+      name: GetEventRequest
+      title: Получить событие
+      correlationId:
+        location: '$message.header#/correlationId'
+      headers:
+        type: object
+        required: [messageType, correlationId, replyTo]
+        properties:
+          messageType:
+            type: string
+            enum: [GetEventRequest]
+          correlationId:
+            type: string
+          replyTo:
+            type: string
+            enum: [bets.responses, gateway.responses]
+            description: Прикладной адрес очереди ответов; отправитель выбирает его по вызывающему сервису.
+      payload:
+        $ref: '#/components/schemas/GetEventRequest'
+
+    GetEventStatusRequest:
+      name: GetEventStatusRequest
+      title: Получить статус события
+      correlationId:
+        location: '$message.header#/correlationId'
+      headers:
+        type: object
+        required: [messageType, correlationId, replyTo]
+        properties:
+          messageType:
+            type: string
+            enum: [GetEventStatusRequest]
+          correlationId:
+            type: string
+          replyTo:
+            type: string
+            enum: [bets.responses, gateway.responses]
+            description: Прикладной адрес очереди ответов; отправитель выбирает его по вызывающему сервису.
+      payload:
+        $ref: '#/components/schemas/GetEventStatusRequest'
+
+    CreateEventRequest:
+      name: CreateEventRequest
+      title: Создать событие
+      correlationId:
+        location: '$message.header#/correlationId'
+      headers:
+        type: object
+        required: [messageType, correlationId, replyTo]
+        properties:
+          messageType:
+            type: string
+            enum: [CreateEventRequest]
+          correlationId:
+            type: string
+          replyTo:
+            type: string
+            enum: [gateway.responses]
+            description: Прикладной адрес очереди ответов.
+      payload:
+        $ref: '#/components/schemas/CreateEventRequest'
+
+    SetEventStatusRequest:
+      name: SetEventStatusRequest
+      title: Изменить статус события
+      correlationId:
+        location: '$message.header#/correlationId'
+      headers:
+        type: object
+        required: [messageType, correlationId, replyTo]
+        properties:
+          messageType:
+            type: string
+            enum: [SetEventStatusRequest]
+          correlationId:
+            type: string
+          replyTo:
+            type: string
+            enum: [gateway.responses]
+            description: Прикладной адрес очереди ответов.
+      payload:
+        $ref: '#/components/schemas/SetEventStatusRequest'
+
+    Bet:
+      name: Bet
+      title: Ставка
+      correlationId:
+        location: '$message.header#/correlationId'
+      headers:
+        type: object
+        required: [messageType, correlationId]
+        properties:
+          messageType:
+            type: string
+            enum: [Bet]
+          correlationId:
+            type: string
+      payload:
+        $ref: '#/components/schemas/Bet'
+
+    BetDetails:
+      name: BetDetails
+      title: Ставка с информацией о событии
+      correlationId:
+        location: '$message.header#/correlationId'
+      headers:
+        type: object
+        required: [messageType, correlationId]
+        properties:
+          messageType:
+            type: string
+            enum: [BetDetails]
+          correlationId:
+            type: string
+      payload:
+        $ref: '#/components/schemas/BetDetails'
+
+    BetsByEvent:
+      name: BetsByEvent
+      title: Ставки на событие
+      correlationId:
+        location: '$message.header#/correlationId'
+      headers:
+        type: object
+        required: [messageType, correlationId]
+        properties:
+          messageType:
+            type: string
+            enum: [BetsByEvent]
+          correlationId:
+            type: string
+      payload:
+        $ref: '#/components/schemas/BetsByEvent'
+
+    Event:
+      name: Event
+      title: Событие
+      correlationId:
+        location: '$message.header#/correlationId'
+      headers:
+        type: object
+        required: [messageType, correlationId]
+        properties:
+          messageType:
+            type: string
+            enum: [Event]
+          correlationId:
+            type: string
+      payload:
+        $ref: '#/components/schemas/Event'
+
+    EventStatusResponse:
+      name: EventStatusResponse
+      title: Статус события
+      correlationId:
+        location: '$message.header#/correlationId'
+      headers:
+        type: object
+        required: [messageType, correlationId]
+        properties:
+          messageType:
+            type: string
+            enum: [EventStatusResponse]
+          correlationId:
+            type: string
+      payload:
+        $ref: '#/components/schemas/EventStatusResponse'
+
+    ErrorResponse:
+      name: ErrorResponse
+      title: Ошибка обработки запроса
+      correlationId:
+        location: '$message.header#/correlationId'
+      headers:
+        type: object
+        required: [messageType, correlationId]
+        properties:
+          messageType:
+            type: string
+            enum: [ErrorResponse]
+          correlationId:
+            type: string
+      payload:
+        $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+    GetEventsRequest:
+      type: object
+      description: Параметры фильтрации и пагинации. Все поля необязательны.
+      properties:
+        status:
+          type: string
+          enum: [open, win, loss]
+          description: Фильтр по статусу события.
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          description: Размер страницы; по умолчанию 20.
+        offset:
+          type: integer
+          minimum: 0
+          description: Количество пропускаемых событий; по умолчанию 0.
+
+    EventsResponse:
+      type: object
+      required: [events, total]
+      properties:
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/Event'
+        total:
+          type: integer
+          minimum: 0
+          description: Количество событий после фильтрации, до применения пагинации.
+
+    GetBetRequest:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: integer
+          format: int64
+
+    GetBetDetailsRequest:
+      type: object
+      required: [id]
+      properties:
+        id:
+          type: integer
+          format: int64
+
+    GetBetsByEventRequest:
+      type: object
+      required: [event_id]
+      properties:
+        event_id:
+          type: integer
+          format: int64
+
+    CreateBetRequest:
+      type: object
+      required: [user_id, event_id, amount]
+      properties:
+        user_id:
+          type: integer
+          format: int64
+        event_id:
+          type: integer
+          format: int64
+        amount:
+          type: string
+          description: Денежная сумма в десятичном формате
+          examples: ["100.00"]
+
+    Bet:
+      type: object
+      required: [id, event_id, amount, user]
+      properties:
+        id:
+          type: integer
+          format: int64
+        event_id:
+          type: integer
+          format: int64
+        amount:
+          type: string
+        user:
+          type: string
+
+    BetsByEvent:
+      type: object
+      required: [event_id, bets]
+      properties:
+        event_id:
+          type: integer
+          format: int64
+        bets:
+          type: array
+          items:
+            $ref: '#/components/schemas/Bet'
+
+    BetDetails:
+      type: object
+      required: [bet, event]
+      properties:
+        bet:
+          $ref: '#/components/schemas/Bet'
+        event:
+          $ref: '#/components/schemas/Event'
+
+    Event:
+      type: object
+      required: [event_id, coefficient, status]
+      properties:
+        event_id:
+          type: integer
+          format: int64
+        coefficient:
+          type: string
+          description: Десятичный коэффициент
+        status:
+          type: string
+          enum: [open, win, loss]
+
+    GetEventRequest:
+      type: object
+      required: [event_id]
+      properties:
+        event_id:
+          type: integer
+          format: int64
+
+    GetEventStatusRequest:
+      type: object
+      required: [event_id]
+      properties:
+        event_id:
+          type: integer
+          format: int64
+
+    CreateEventRequest:
+      type: object
+      required: [coefficient]
+      properties:
+        coefficient:
+          type: string
+          examples: ["1.85", "2.10", "15.00"]
+
+    SetEventStatusRequest:
+      type: object
+      required: [event_id, status]
+      properties:
+        event_id:
+          type: integer
+          format: int64
+        status:
+          type: string
+          enum: [open, win, loss]
+
+    EventStatusResponse:
+      type: object
+      required: [event_id, status]
+      properties:
+        event_id:
+          type: integer
+          format: int64
+        status:
+          type: string
+          enum: [open, win, loss]
+
+    ErrorResponse:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: Машиночитаемый код ошибки, например NOT_FOUND или VALIDATION_ERROR.
+        message:
+          type: string
+          description: Человекочитаемое описание ошибки.
